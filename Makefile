@@ -1,5 +1,5 @@
 dev:
-	air
+	go run ./cmd/aic/main.go
 
 build:
 	go build -o ./tmp/main ./cmd/aic
