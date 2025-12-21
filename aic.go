@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/atotto/clipboard"
@@ -23,7 +24,8 @@ func main() {
 	}
 
 	// 2. Initialize Whip CLI
-	cli, err := whip.New(helpFactory)
+	// Make "prompt" the default command.
+	cli, err := whip.New(promptFactory)
 	if err != nil {
 		log.Fatalf("Failed to initialize CLI: %v", err)
 	}
@@ -41,21 +43,35 @@ func main() {
 
 // --- COMMAND IMPLEMENTATIONS ---
 
-// 1. PromptCmd
 type PromptCmd struct{}
 
 func (c *PromptCmd) Execute(cli *whip.Cli) error {
-	// The prompt string is expected to be the argument after "prompt"
-	input, ok := cli.ArgGetByPosition(2)
-	if !ok {
-		return fmt.Errorf("Usage: aic prompt \"your prompt with @file/paths\"")
+	// Support BOTH:
+	//   aic "your prompt"
+	//   aic prompt "your prompt"
+	startPos := 1
+	if first, ok := cli.ArgGetByPosition(1); ok && first == "prompt" {
+		startPos = 2
 	}
 
-	runPrompt(input)
+	// Collect everything from startPos onward (supports prompts without quotes too)
+	var parts []string
+	for pos := startPos; ; pos++ {
+		val, ok := cli.ArgGetByPosition(pos)
+		if !ok {
+			break
+		}
+		parts = append(parts, val)
+	}
+
+	if len(parts) == 0 {
+		return fmt.Errorf("Usage: aic \"your prompt with @file/paths\"  OR  aic prompt \"your prompt with @file/paths\"")
+	}
+
+	runPrompt(strings.Join(parts, " "))
 	return nil
 }
 
-// 2. HelpCmd
 type HelpCmd struct{}
 
 func (c *HelpCmd) Execute(cli *whip.Cli) error {
@@ -65,28 +81,175 @@ func (c *HelpCmd) Execute(cli *whip.Cli) error {
 
 // --- HELPER LOGIC ---
 
+type inlinedFileStat struct {
+	Path  string
+	Chars int
+	Kind  string // "file" | "scan"
+}
+
+func stripEmptyAndCommentLines(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+
+	inBlock := false
+
+	for _, ln := range lines {
+		t := strings.TrimSpace(ln)
+
+		// If we are inside a block comment, keep discarding until we see */
+		if inBlock {
+			if strings.Contains(t, "*/") {
+				// end block comment (can be on same line it started, or later)
+				inBlock = false
+			}
+			continue
+		}
+
+		// Remove empty lines
+		if t == "" {
+			continue
+		}
+
+		// Remove single-line comments that start with //
+		if strings.HasPrefix(t, "//") {
+			continue
+		}
+
+		// Remove block comments that start with /*
+		if strings.HasPrefix(t, "/*") {
+			// If it ends on the same line, just drop this line and continue
+			if !strings.Contains(t, "*/") {
+				inBlock = true
+			}
+			continue
+		}
+
+		// Keep the original (untrimmed) line so code formatting is preserved
+		out = append(out, ln)
+	}
+
+	return strings.Join(out, "\n")
+}
+
+// parseCapturedFilesFromOutput finds BOTH:
+//  1. direct file inlines:  --- START FILE: X --- ... --- END FILE: X ---
+//  2. directory scan blocks: PATH: /abs/path ... \n---\n  (scanner output)
+func parseCapturedFilesFromOutput(raw string) []inlinedFileStat {
+	stats := make([]inlinedFileStat, 0, 32)
+	seen := make(map[string]inlinedFileStat)
+
+	// --- 1) START FILE blocks (direct @file)
+	{
+		const startPrefix = "--- START FILE:"
+		const endPrefix = "--- END FILE:"
+
+		i := 0
+		for {
+			start := strings.Index(raw[i:], startPrefix)
+			if start == -1 {
+				break
+			}
+			start += i
+
+			lineEnd := strings.IndexByte(raw[start:], '\n')
+			if lineEnd == -1 {
+				break
+			}
+			lineEnd += start
+			line := strings.TrimSpace(raw[start:lineEnd])
+
+			pathPart := strings.TrimSpace(strings.TrimPrefix(line, startPrefix))
+			pathPart = strings.TrimSpace(strings.TrimSuffix(pathPart, "---"))
+
+			contentStart := lineEnd + 1
+
+			endMarker := endPrefix + " " + pathPart
+			endPos := strings.Index(raw[contentStart:], endMarker)
+			if endPos == -1 {
+				endPos = strings.Index(raw[contentStart:], endPrefix)
+				if endPos == -1 {
+					break
+				}
+			}
+			endPos += contentStart
+
+			content := raw[contentStart:endPos]
+			content = strings.Trim(content, "\n")
+
+			st := inlinedFileStat{Path: pathPart, Chars: len(content), Kind: "file"}
+			if prev, ok := seen[st.Path]; !ok || st.Chars > prev.Chars {
+				seen[st.Path] = st
+			}
+
+			i = endPos
+		}
+	}
+
+	// --- 2) PATH blocks (directory scans)
+	{
+		const pathPrefix = "PATH: "
+		const delim = "\n---"
+
+		i := 0
+		for {
+			p := strings.Index(raw[i:], pathPrefix)
+			if p == -1 {
+				break
+			}
+			p += i
+
+			lineEnd := strings.IndexByte(raw[p:], '\n')
+			if lineEnd == -1 {
+				break
+			}
+			lineEnd += p
+			pathLine := strings.TrimSpace(raw[p:lineEnd])
+			absPath := strings.TrimSpace(strings.TrimPrefix(pathLine, pathPrefix))
+
+			contentStart := lineEnd + 1
+
+			d := strings.Index(raw[contentStart:], delim)
+			if d == -1 {
+				d = len(raw) - contentStart
+			}
+			contentEnd := contentStart + d
+
+			content := raw[contentStart:contentEnd]
+			content = strings.Trim(content, "\n")
+
+			st := inlinedFileStat{Path: absPath, Chars: len(content), Kind: "scan"}
+			if prev, ok := seen[st.Path]; !ok || st.Chars > prev.Chars {
+				seen[st.Path] = st
+			}
+
+			i = contentEnd
+		}
+	}
+
+	for _, v := range seen {
+		stats = append(stats, v)
+	}
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Path < stats[j].Path
+	})
+
+	return stats
+}
+
 func runPrompt(input string) {
 	tokens := tokenizer.Tokenize(input)
 
 	var finalOutput strings.Builder
-	filesFound := 0
 
 	for _, token := range tokens {
-
-		// Case 1: Standard Text (or expanded directories from the tokenizer)
 		if token.Type() == tokenizer.RawText {
 			finalOutput.WriteString(token.Literal())
 			continue
 		}
 
-		// Case 2: File Path (@file.go)
-		// We replace the token with the actual file content inline
 		if token.Type() == tokenizer.FilePath {
 			relativePath := token.Value()
 			absPath, err := filepath.Abs(relativePath)
-
-			// If we can't resolve/read the file, we just leave the original text (@file)
-			// so the user sees the error in the prompt or knows it wasn't expanded.
 			if err != nil {
 				fmt.Printf("⚠️ Warning: Could not resolve path %s\n", relativePath)
 				finalOutput.WriteString(token.Literal())
@@ -100,36 +263,49 @@ func runPrompt(input string) {
 				continue
 			}
 
-			// Add visual delimiters so the LLM knows where the file starts and ends
 			fmt.Fprintf(&finalOutput, "\n\n--- START FILE: %s ---\n", relativePath)
 			finalOutput.Write(content)
 			fmt.Fprintf(&finalOutput, "\n--- END FILE: %s ---\n\n", relativePath)
-
-			filesFound++
 		}
 	}
 
-	finalString := finalOutput.String()
+	rawOut := finalOutput.String()
 
-	// Output to Console
-	fmt.Println("---------------------")
-	fmt.Println("--- PROMPT START ---")
-	fmt.Print(finalString)
-	fmt.Println("\n--- PROMPT END ---")
+	// Compute captured file stats from the raw output (covers @file AND @dir expansions)
+	stats := parseCapturedFilesFromOutput(rawOut)
+
+	// Remove empty lines and comment lines BEFORE copying
+	finalString := stripEmptyAndCommentLines(rawOut)
 
 	// Copy to Clipboard
 	if err := clipboard.WriteAll(finalString); err != nil {
 		log.Fatalf("Failed to copy to clipboard: %v", err)
 	}
 
+	// Console output: DO NOT print the finalString.
 	fmt.Println("---------------------")
-	fmt.Printf("Success! Copied prompt + %d inlined files to clipboard.\n", filesFound)
+
+	if len(stats) == 0 {
+		fmt.Println("Success! Copied prompt (no captured files).")
+		fmt.Printf("Totals: files=0, chars=%d\n", len(finalString))
+		fmt.Println("---------------------")
+		return
+	}
+
+	fmt.Println("Success! Copied prompt with captured files:")
+	for _, st := range stats {
+		fmt.Printf("  - %s (%d chars) [%s]\n", st.Path, st.Chars, st.Kind)
+	}
+
+	fmt.Printf("Totals: files=%d, chars=%d\n", len(stats), len(finalString))
+	fmt.Println("---------------------")
 }
 
 func printUsage() {
-	fmt.Println("Usage: ctx [command]")
+	fmt.Println("Usage: aic [command] \"prompt with @file/paths\"")
+	fmt.Println("\nDefault:")
+	fmt.Println("  aic \"...\"       -> Same as `aic prompt \"...\"`")
 	fmt.Println("\nCommands:")
-	fmt.Println("  (no command) -> Show this help message")
-	fmt.Println("  prompt \"...\" -> Wraps text and expands @file/paths INLINE")
-	fmt.Println("  help         -> Show this help message")
+	fmt.Println("  prompt \"...\"    -> Wraps text and expands @file/paths INLINE")
+	fmt.Println("  help            -> Show this help message")
 }

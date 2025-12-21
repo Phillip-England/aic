@@ -6,3 +6,6 @@ build:
 
 kill:
 	lsof -ti:8000 | xargs kill -9 || true
+
+soak:
+	aic prompt "@aic.go @internal"

@@ -107,9 +107,6 @@ func (s *Scanner) CollectContent(preamble string, contextContent string) (string
 
 		fileCount++
 
-		// Log relative path for cleaner console output
-		rel, _ := filepath.Rel(s.Root, path)
-		fmt.Printf("Collected: %s\n", rel)
 	}
 
 	return sb.String(), fileCount, nil
