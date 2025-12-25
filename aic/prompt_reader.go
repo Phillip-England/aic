@@ -1,24 +1,34 @@
-// --- START FILE: aic/prompt_reader.go ---
 package aic
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-// PromptReader is a tiny holder for the prompt text.
-// Next stage can add parsing, sections, etc.
 type PromptReader struct {
-	Text string
+	Text   string
+	Tokens []PromptToken
 }
 
 func NewPromptReader(text string) *PromptReader {
-	return &PromptReader{Text: text}
+	toks := TokenizePrompt(text)
+	return &PromptReader{
+		Text:   text,
+		Tokens: toks,
+	}
 }
 
 func (p *PromptReader) String() string {
-	return p.Text
+	if len(p.Tokens) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, tok := range p.Tokens {
+		sb.WriteString(tok.Literal())
+	}
+	return sb.String()
 }
 
 func (p *PromptReader) Print() {
-	fmt.Print(p.Text)
+	fmt.Print(p.String() + "\n")
 }
-
-// --- END FILE: aic/prompt_reader.go ---
