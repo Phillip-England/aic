@@ -91,7 +91,6 @@ func (c *CLI) cmdWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 
-	// simple knobs if you ever want to tweak:
 	poll := fs.Duration("poll", 200*time.Millisecond, "poll interval for file changes")
 	debounce := fs.Duration("debounce", 350*time.Millisecond, "debounce window to treat changes as a single save")
 	if err := fs.Parse(args); err != nil {
@@ -137,7 +136,9 @@ func (c *CLI) cmdWatch(args []string) error {
 	for {
 		select {
 		case <-stop:
-			fmt.Fprintln(c.Err, "\nStopped.")
+			// Don't include "\n" in the argument to Fprintln; it already adds one.
+			fmt.Fprintln(c.Err, "")
+			fmt.Fprintln(c.Err, "Stopped.")
 			return nil
 
 		case <-ticker.C:
@@ -209,7 +210,8 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 func (c *CLI) printHelp(topic string) {
 	switch topic {
 	case "init":
-		fmt.Fprintln(c.Out, `Usage:
+		// Use Fprint (raw string already contains trailing newline)
+		fmt.Fprint(c.Out, `Usage:
   aic init [--force]
 Creates ./ai and writes ./ai/prompt.md (only).
 Options:
@@ -217,7 +219,7 @@ Options:
 `)
 		return
 	case "watch":
-		fmt.Fprintln(c.Out, `Usage:
+		fmt.Fprint(c.Out, `Usage:
   aic watch [--poll DURATION] [--debounce DURATION]
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
 Options:
@@ -226,13 +228,13 @@ Options:
 `)
 		return
 	case "help":
-		fmt.Fprintln(c.Out, `Usage:
+		fmt.Fprint(c.Out, `Usage:
   aic help [command]
 Shows help for a command (or general help).
 `)
 		return
 	case "version":
-		fmt.Fprintln(c.Out, `Usage:
+		fmt.Fprint(c.Out, `Usage:
   aic version
 Prints the CLI version.
 `)
@@ -241,7 +243,7 @@ Prints the CLI version.
 	default:
 		fmt.Fprintf(c.Out, "No detailed help for %q.\n\n", topic)
 	}
-	fmt.Fprintln(c.Out, `aic - minimal CLI
+	fmt.Fprint(c.Out, `aic - minimal CLI
 Usage:
   aic <command> [args]
 Commands:

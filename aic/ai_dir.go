@@ -20,13 +20,48 @@ type AiDir struct {
 const promptHeader = `# LLM MODEL THIS IS MY PROMPT:
 `
 
+// findAiWorkingDir walks upward from start and returns the directory that contains "ai/".
+// That directory is the "project root" (WorkingDir). Root will be WorkingDir/ai.
+func findAiWorkingDir(start string) (string, error) {
+	start = filepath.Clean(start)
+
+	// normalize for macOS (/var vs /private/var) and symlinks
+	if es, err := filepath.EvalSymlinks(start); err == nil {
+		start = es
+	}
+
+	dir := start
+	for {
+		aiPath := filepath.Join(dir, "ai")
+		if info, err := os.Lstat(aiPath); err == nil && info.IsDir() {
+			// normalize the found project root as well
+			if es, err := filepath.EvalSymlinks(dir); err == nil {
+				dir = es
+			}
+			return dir, nil
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return "", fmt.Errorf("ai dir not found from %s (searched upward)", start)
+}
+
 func NewAiDir(force bool) (*AiDir, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	workingAbs := wd
+	workingAbs := filepath.Clean(wd)
+	if es, err := filepath.EvalSymlinks(workingAbs); err == nil {
+		workingAbs = es
+	}
+
 	rootAbs := filepath.Join(workingAbs, "ai")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
 
@@ -81,9 +116,12 @@ func OpenAiDir() (*AiDir, error) {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	workingAbs := wd
-	rootAbs := filepath.Join(workingAbs, "ai")
+	workingAbs, err := findAiWorkingDir(wd)
+	if err != nil {
+		return nil, err
+	}
 
+	rootAbs := filepath.Join(workingAbs, "ai")
 	info, statErr := os.Lstat(rootAbs)
 	if statErr != nil {
 		return nil, fmt.Errorf("ai dir not found: %s", rootAbs)

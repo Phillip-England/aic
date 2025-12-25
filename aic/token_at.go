@@ -26,6 +26,31 @@ func (t *AtToken) Value() string {
 	return strings.TrimPrefix(t.literal, "@")
 }
 
+func ensureUnderWorkingDir(targetAbs string, workingDir string) error {
+	if workingDir == "" {
+		return fmt.Errorf("missing working directory")
+	}
+
+	wd := filepath.Clean(workingDir)
+	if es, err := filepath.EvalSymlinks(wd); err == nil {
+		wd = es
+	}
+
+	abs := filepath.Clean(targetAbs)
+	if es, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = es
+	}
+
+	rel, err := filepath.Rel(wd, abs)
+	if err != nil {
+		return fmt.Errorf("resolve relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("path escapes project root: %s", targetAbs)
+	}
+	return nil
+}
+
 func (t *AtToken) Validate(d *AiDir) error {
 	if d == nil || d.WorkingDir == "" {
 		return fmt.Errorf("missing working directory")
@@ -36,13 +61,16 @@ func (t *AtToken) Validate(d *AiDir) error {
 		return fmt.Errorf("empty @ token")
 	}
 
-	// @. means project root (working dir)
+	// @. means project root (WorkingDir)
 	if val == "." {
+		if err := ensureUnderWorkingDir(d.WorkingDir, d.WorkingDir); err != nil {
+			return err
+		}
 		t.targetAbs = d.WorkingDir
 		return nil
 	}
 
-	// Disallow absolute paths; resolve relative to working dir.
+	// Disallow absolute paths; resolve relative to WorkingDir.
 	if filepath.IsAbs(val) {
 		return fmt.Errorf("absolute paths not allowed: %s", val)
 	}
@@ -50,26 +78,21 @@ func (t *AtToken) Validate(d *AiDir) error {
 	// Clean and ensure it cannot escape working dir.
 	cleanRel := filepath.Clean(val)
 	if cleanRel == ".." || strings.HasPrefix(cleanRel, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("path escapes working dir: %s", val)
+		return fmt.Errorf("path escapes project root: %s", val)
 	}
 
 	abs := filepath.Join(d.WorkingDir, cleanRel)
 	abs = filepath.Clean(abs)
 
-	// Ensure still under working dir after clean.
-	relToWd, err := filepath.Rel(d.WorkingDir, abs)
-	if err != nil {
-		return fmt.Errorf("resolve path: %w", err)
-	}
-	if relToWd == ".." || strings.HasPrefix(relToWd, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("path escapes working dir: %s", val)
-	}
-
-	info, err := os.Stat(abs)
-	if err != nil {
+	// Must exist
+	if _, err := os.Stat(abs); err != nil {
 		return fmt.Errorf("target not found: %s", abs)
 	}
-	_ = info // can be file or directory
+
+	// Critical rule: resolved target must be under project root (dir containing ai/)
+	if err := ensureUnderWorkingDir(abs, d.WorkingDir); err != nil {
+		return err
+	}
 
 	t.targetAbs = abs
 	return nil
@@ -81,7 +104,6 @@ func (t *AtToken) AfterValidate(r *PromptReader, index int) error {
 }
 
 func (t *AtToken) Render(d *AiDir) (string, error) {
-	// If Validate wasn't called, fallback safely.
 	if t.targetAbs == "" {
 		return t.literal, nil
 	}
@@ -97,7 +119,6 @@ func (t *AtToken) Render(d *AiDir) (string, error) {
 	for _, abs := range files {
 		content, ok, rstats, rerr := ReadTextFile(abs)
 		if rerr != nil {
-			// hard fail; you can soften this later if you want partial output
 			return "", rerr
 		}
 		if !ok {
