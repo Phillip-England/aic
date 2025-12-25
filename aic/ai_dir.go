@@ -1,4 +1,3 @@
-// --- START FILE: aic/ai_dir.go ---
 package aic
 
 import (
@@ -9,12 +8,13 @@ import (
 )
 
 type AiDir struct {
-	Root string
+	Root       string
+	WorkingDir string
 
-	// Kept for potential future use (not created anymore)
-	Tmp     string
 	Prompts string
 	Skills  string
+
+	Ignore *GitIgnore
 }
 
 const promptHeader = `# LLM MODEL THIS IS MY PROMPT:
@@ -26,13 +26,14 @@ func NewAiDir(force bool) (*AiDir, error) {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 
-	rootAbs := filepath.Join(wd, "ai")
+	workingAbs := wd
+	rootAbs := filepath.Join(workingAbs, "ai")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
 
-	tmpAbs := filepath.Join(rootAbs, "tmp")
 	promptsAbs := filepath.Join(rootAbs, "prompts")
 	skillsAbs := filepath.Join(rootAbs, "skills")
 
+	// Handle existing directory
 	if info, statErr := os.Lstat(rootAbs); statErr == nil {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
@@ -47,19 +48,65 @@ func NewAiDir(force bool) (*AiDir, error) {
 		return nil, fmt.Errorf("stat ai dir: %w", statErr)
 	}
 
+	// Create ai root + subdirs
 	if err := os.MkdirAll(rootAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", rootAbs, err)
 	}
+	if err := os.MkdirAll(promptsAbs, 0o755); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", promptsAbs, err)
+	}
+	if err := os.MkdirAll(skillsAbs, 0o755); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", skillsAbs, err)
+	}
 
+	// Write prompt.md
 	if err := os.WriteFile(promptFile, []byte(promptHeader), 0o644); err != nil {
 		return nil, fmt.Errorf("write prompt.md: %w", err)
 	}
 
+	ign, _ := LoadGitIgnore(workingAbs) // ignore missing .gitignore
+
 	return &AiDir{
-		Root:    rootAbs,
-		Tmp:     tmpAbs,
-		Prompts: promptsAbs,
-		Skills:  skillsAbs,
+		Root:       rootAbs,
+		WorkingDir: workingAbs,
+		Prompts:    promptsAbs,
+		Skills:     skillsAbs,
+		Ignore:     ign,
+	}, nil
+}
+
+func OpenAiDir() (*AiDir, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("get working directory: %w", err)
+	}
+
+	workingAbs := wd
+	rootAbs := filepath.Join(workingAbs, "ai")
+
+	info, statErr := os.Lstat(rootAbs)
+	if statErr != nil {
+		return nil, fmt.Errorf("ai dir not found: %s", rootAbs)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
+	}
+
+	promptsAbs := filepath.Join(rootAbs, "prompts")
+	skillsAbs := filepath.Join(rootAbs, "skills")
+
+	// Ensure subdirs exist (non-destructive)
+	_ = os.MkdirAll(promptsAbs, 0o755)
+	_ = os.MkdirAll(skillsAbs, 0o755)
+
+	ign, _ := LoadGitIgnore(workingAbs)
+
+	return &AiDir{
+		Root:       rootAbs,
+		WorkingDir: workingAbs,
+		Prompts:    promptsAbs,
+		Skills:     skillsAbs,
+		Ignore:     ign,
 	}, nil
 }
 
@@ -67,8 +114,6 @@ func (d *AiDir) PromptPath() string {
 	return filepath.Join(d.Root, "prompt.md")
 }
 
-// PromptText reads ./ai/prompt.md and returns the contents as a string.
-// It tolerates missing file by returning the default header content (so first run still works).
 func (d *AiDir) PromptText() (string, error) {
 	b, err := os.ReadFile(d.PromptPath())
 	if err != nil {
@@ -77,11 +122,7 @@ func (d *AiDir) PromptText() (string, error) {
 		}
 		return "", fmt.Errorf("read prompt.md: %w", err)
 	}
-
-	// Normalize line endings to \n for consistent downstream behavior.
 	s := string(b)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return s, nil
 }
-
-// --- END FILE: aic/ai_dir.go ---

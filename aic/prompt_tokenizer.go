@@ -1,17 +1,12 @@
 package aic
 
-// TokenizePrompt scans the prompt into tokens and then validates them.
-// Tokens that fail validation are downgraded to RawToken (keeping the same literal).
 func TokenizePrompt(prompt string) []PromptToken {
 	if prompt == "" {
 		return nil
 	}
-
-	toks := scanPrompt(prompt)
-	return validateOrDowngrade(toks)
+	return scanPrompt(prompt)
 }
 
-// scanPrompt does ONLY scanning/token discovery (no validation).
 func scanPrompt(prompt string) []PromptToken {
 	var tokens []PromptToken
 	rawStart := 0
@@ -27,7 +22,6 @@ func scanPrompt(prompt string) []PromptToken {
 	isWS := func(b byte) bool {
 		return b == ' ' || b == '\n' || b == '\t' || b == '\r'
 	}
-
 	isWordStart := func(i int) bool {
 		if i == 0 {
 			return true
@@ -36,11 +30,15 @@ func scanPrompt(prompt string) []PromptToken {
 	}
 
 	for i := 0; i < len(prompt); i++ {
-		if prompt[i] != '@' || !isWordStart(i) {
+		b := prompt[i]
+		if !isWordStart(i) {
 			continue
 		}
 
-		// Found '@' at a word start -> token candidate.
+		if b != '@' && b != '$' {
+			continue
+		}
+
 		flushRaw(i)
 
 		start := i
@@ -49,8 +47,12 @@ func scanPrompt(prompt string) []PromptToken {
 			j++
 		}
 
-		atLit := prompt[start:j]
-		tokens = append(tokens, NewAtToken(atLit))
+		lit := prompt[start:j]
+		if b == '@' {
+			tokens = append(tokens, NewAtToken(lit))
+		} else {
+			tokens = append(tokens, NewDollarToken(lit))
+		}
 
 		i = j - 1
 		rawStart = j
@@ -58,22 +60,4 @@ func scanPrompt(prompt string) []PromptToken {
 
 	flushRaw(len(prompt))
 	return tokens
-}
-
-// validateOrDowngrade runs Validate() on each token.
-// If Validate() fails, the token becomes RawToken with the same literal text.
-func validateOrDowngrade(tokens []PromptToken) []PromptToken {
-	if len(tokens) == 0 {
-		return tokens
-	}
-
-	out := make([]PromptToken, 0, len(tokens))
-	for _, tok := range tokens {
-		if err := tok.Validate(); err != nil {
-			out = append(out, NewRawToken(tok.Literal()))
-			continue
-		}
-		out = append(out, tok)
-	}
-	return out
 }

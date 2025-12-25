@@ -7,6 +7,7 @@ type PromptTokenType int
 const (
 	PromptTokenRaw PromptTokenType = iota
 	PromptTokenAt
+	PromptTokenDollar
 )
 
 func (t PromptTokenType) String() string {
@@ -15,18 +16,31 @@ func (t PromptTokenType) String() string {
 		return "Raw"
 	case PromptTokenAt:
 		return "At"
+	case PromptTokenDollar:
+		return "Dollar"
 	default:
 		return "Unknown"
 	}
 }
 
-// PromptToken is produced by the prompt tokenizer.
-//
-// Validate() determines whether the token is "real".
-// If Validate() returns an error, the tokenizer pipeline will downgrade it to Raw.
 type PromptToken interface {
 	fmt.Stringer
+
 	Type() PromptTokenType
 	Literal() string
-	Validate() error
+
+	// Validate runs during the validation pass, using AiDir context.
+	// If it returns an error, the reader downgrades this token to Raw.
+	Validate(d *AiDir) error
+
+	// AfterValidate runs after validation/downgrade and binds reader/index.
+	AfterValidate(r *PromptReader, index int) error
+
+	// Render produces this token's contribution to the final output string.
+	Render(d *AiDir) (string, error)
+
+	Reader() *PromptReader
+	Index() int
+	Prev() PromptToken
+	Next() PromptToken
 }
