@@ -183,8 +183,8 @@ func fileModSize(path string) (time.Time, int64, error) {
 	return info.ModTime(), info.Size(), nil
 }
 
-// renderPromptToClipboard reads prompt.md, tokenizes/validates/renders, and writes to clipboard.
-// Returns the rendered string.
+// renderPromptToClipboard reads prompt.md, tokenizes/validates/renders, compresses, and writes to clipboard.
+// Returns the final (compressed) string.
 func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 	text, err := aiDir.PromptText()
 	if err != nil {
@@ -199,6 +199,10 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	// Compression pass (wired in; currently removes empty lines only)
+	comp := NewCompressor()
+	out = comp.Compress(out)
 
 	if err := clipboard.WriteAll(out); err != nil {
 		return "", fmt.Errorf("copy to clipboard: %w", err)

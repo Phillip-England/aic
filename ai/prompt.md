@@ -1,2 +1,1 @@
 # LLM MODEL THIS IS MY PROMPT:
-Okay I tried changing some things in my application around and now I am experiencing issues can you revise my tests please and get things in line? I moved my tests into the aic_test dir and now I have issues can you revise these files for me and fix things? @.
