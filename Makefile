@@ -1,11 +1,5 @@
 dev:
-	go run ./cmd/aic/aic.go
-
-build:
-	go build -o ./tmp/main ./cmd/aic
+	go run main.go
 
 kill:
 	lsof -ti:8000 | xargs kill -9 || true
-
-soak:
-	aic prompt "@aic.go @internal"
