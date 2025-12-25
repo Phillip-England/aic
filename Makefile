@@ -1,5 +1,5 @@
 dev:
-	go run main.go
+	air
 
 test:
-	clear; go test ./aic;
+	clear; go test ./...

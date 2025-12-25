@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/phillip-england/aic/aic"
+	"github.com/phillip-england/aic/src/aic"
 )
 
 func main() {
