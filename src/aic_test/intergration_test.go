@@ -8,15 +8,15 @@ import (
 	"github.com/phillip-england/aic/src/aic"
 )
 
-func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidAtToken(t *testing.T) {
+func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testing.T) {
 	td := t.TempDir()
-
 	d := &aic.AiDir{
 		WorkingDir: td,
-		Root:       filepath.Join(td, "ai"),
+		Root:        filepath.Join(td, "ai"),
 	}
 
-	pr := aic.NewPromptReader("hello @missing world")
+	// We use $at("missing") which should fail validation because file doesn't exist
+	pr := aic.NewPromptReader(`hello $at("missing") world`)
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 
@@ -28,8 +28,9 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidAtToken(t *testing.T)
 		t.Fatalf("token[0] unexpected: %v %q", pr.Tokens[0].Type(), pr.Tokens[0].Literal())
 	}
 
-	if pr.Tokens[1].Type() != aic.PromptTokenRaw || pr.Tokens[1].Literal() != "@missing" {
-		t.Fatalf("token[1] should be downgraded to Raw '@missing', got: %v %q", pr.Tokens[1].Type(), pr.Tokens[1].Literal())
+	// Should be downgraded to Raw
+	if pr.Tokens[1].Type() != aic.PromptTokenRaw || pr.Tokens[1].Literal() != `$at("missing")` {
+		t.Fatalf("token[1] should be downgraded to Raw, got: %v %q", pr.Tokens[1].Type(), pr.Tokens[1].Literal())
 	}
 
 	if pr.Tokens[2].Type() != aic.PromptTokenRaw || pr.Tokens[2].Literal() != " world" {
@@ -38,9 +39,9 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidAtToken(t *testing.T)
 }
 
 func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
-	in := "a @. b $clr() c"
+	// Updated syntax in test string
+	in := `a $at(".") b $clear() c`
 	pr := aic.NewPromptReader(in)
-
 	if got := pr.String(); got != in {
 		t.Fatalf("expected %q, got %q", in, got)
 	}
@@ -48,6 +49,7 @@ func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
 	td := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(td, "ai"), 0o755)
 	d := &aic.AiDir{WorkingDir: td, Root: filepath.Join(td, "ai")}
+
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 

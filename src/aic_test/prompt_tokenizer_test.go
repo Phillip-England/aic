@@ -20,48 +20,41 @@ func TestTokenizePrompt_Table(t *testing.T) {
 			lits:  []string{"hello world"},
 		},
 		{
-			name:  "@. at start",
-			in:    "@.",
-			types: []aic.PromptTokenType{aic.PromptTokenAt},
-			lits:  []string{"@."},
-		},
-		{
-			name:  "@. mid-line",
-			in:    "hi @. there",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenAt, aic.PromptTokenRaw},
-			lits:  []string{"hi ", "@.", " there"},
-		},
-		{
-			name:  "@. after newline",
-			in:    "hi\n@.\nthere",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenAt, aic.PromptTokenRaw},
-			lits:  []string{"hi\n", "@.", "\nthere"},
-		},
-		{
-			name:  "$clr() at start",
-			in:    "$clr()",
+			name:  "$at dot at start",
+			in:    `$at(".")`,
 			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{"$clr()"},
+			lits:  []string{`$at(".")`},
 		},
 		{
-			name:  "$clr() mid-line",
-			in:    "hi $clr() there",
+			name:  "$at mid-line",
+			in:    `hi $at("f.txt") there`,
 			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"hi ", "$clr()", " there"},
+			lits:  []string{"hi ", `$at("f.txt")`, " there"},
+		},
+		{
+			name:  "$clear() at start",
+			in:    "$clear()",
+			types: []aic.PromptTokenType{aic.PromptTokenDollar},
+			lits:  []string{"$clear()"},
+		},
+		{
+			name:  "$clear() mid-line",
+			in:    "hi $clear() there",
+			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
+			lits:  []string{"hi ", "$clear()", " there"},
 		},
 		{
 			name:  "not a token when not word-start",
-			in:    "hello$clr()",
+			in:    "hello$clear()",
 			types: []aic.PromptTokenType{aic.PromptTokenRaw},
-			lits:  []string{"hello$clr()"},
+			lits:  []string{"hello$clear()"},
 		},
 		{
 			name:  "whitespace boundaries tabs/spaces",
-			in:    "a\t$clr()  @.\nend",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw, aic.PromptTokenAt, aic.PromptTokenRaw},
-			lits:  []string{"a\t", "$clr()", "  ", "@.", "\nend"},
+			in:    "a\t$clear()  $at(\".\")\nend",
+			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
+			lits:  []string{"a\t", "$clear()", "  ", `$at(".")`, "\nend"},
 		},
-
 		{
 			name:  "$sh simple string",
 			in:    `$sh("ls")`,
@@ -73,6 +66,18 @@ func TestTokenizePrompt_Table(t *testing.T) {
 			in:    `x $sh("ls -la") y`,
 			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
 			lits:  []string{"x ", `$sh("ls -la")`, " y"},
+		},
+		{
+			name:  "$at with multiple args",
+			in:    `$at("path", "to", "file")`,
+			types: []aic.PromptTokenType{aic.PromptTokenDollar},
+			lits:  []string{`$at("path", "to", "file")`},
+		},
+		{
+			name:  "$http token",
+			in:    `$http("google.com")`,
+			types: []aic.PromptTokenType{aic.PromptTokenDollar},
+			lits:  []string{`$http("google.com")`},
 		},
 		{
 			name:  "$sh with escaped quotes",
@@ -92,11 +97,9 @@ func TestTokenizePrompt_Table(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			toks := aic.TokenizePrompt(tt.in)
-
 			if len(toks) != len(tt.types) {
 				t.Fatalf("expected %d tokens, got %d", len(tt.types), len(toks))
 			}
-
 			for i := range toks {
 				if toks[i].Type() != tt.types[i] {
 					t.Fatalf("token[%d] type: expected %v, got %v", i, tt.types[i], toks[i].Type())
@@ -105,7 +108,6 @@ func TestTokenizePrompt_Table(t *testing.T) {
 					t.Fatalf("token[%d] literal: expected %q, got %q", i, tt.lits[i], toks[i].Literal())
 				}
 			}
-
 			var out string
 			for _, tok := range toks {
 				out += tok.Literal()

@@ -113,6 +113,13 @@ func (c *CLI) cmdWatch(args []string) error {
 	fmt.Fprintf(c.Err, "Watching: %s\n", promptPath)
 	fmt.Fprintln(c.Err, "Press Ctrl+C to stop.")
 
+	// Perform initial render so clipboard is ready immediately
+	if out, err := c.renderPromptToClipboard(aiDir); err != nil {
+		fmt.Fprintf(c.Err, "initial render error: %v\n", err)
+	} else {
+		fmt.Fprintf(c.Err, "initial copy [%d chars]\n", len(out))
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
@@ -174,51 +181,44 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 		return "", err
 	}
 
-	reader := NewPromptReader(text)
+	// Step 1: Pre-process (Remove comments and empty lines)
+	// This ensures that commented-out tokens like // $clear() are removed
+	// before the tokenizer even sees them.
+	processed := PreProcess(text)
+
+	// Step 2: Tokenize and Parse
+	reader := NewPromptReader(processed)
 	reader.ValidateOrDowngrade(aiDir)
 	reader.BindTokens()
 
+	// Step 3: Render (Execute tokens)
 	out, err := reader.Render(aiDir)
 	if err != nil {
 		return "", err
 	}
 
-	comp := NewCompressor()
-	out = comp.Compress(out)
-
-	// Apply labels to separate Context from Prompt
+	// Step 4: Apply Labels (Context/Prompt separation)
 	out = applyLabels(out)
 
 	if err := clipboard.WriteAll(out); err != nil {
 		return "", fmt.Errorf("copy to clipboard: %w", err)
 	}
+
 	return out, nil
 }
 
-// applyLabels transforms the raw "---...---" structure into labeled sections.
 func applyLabels(in string) string {
 	s := strings.TrimSpace(in)
-
-	// Check if the content starts with the standard separator
 	if !strings.HasPrefix(s, "---") {
-		// If structure is missing, return as is (treat whole thing as prompt)
 		return s
 	}
-
-	// Remove the first "---"
 	s = s[3:]
-
-	// Find the second "---" which acts as the closing delimiter for context
-	// We look for "\n---" to ensure we are matching the line break
 	splitIdx := strings.Index(s, "\n---")
 	if splitIdx == -1 {
-		// If closing delimiter is missing, return as is
 		return "---" + s
 	}
 
 	contextContent := strings.TrimSpace(s[:splitIdx])
-
-	// Jump over "\n---" (4 chars) to get the prompt content
 	promptStart := splitIdx + 4
 	promptContent := ""
 	if promptStart < len(s) {
@@ -231,10 +231,8 @@ func applyLabels(in string) string {
 		sb.WriteString(contextContent)
 		sb.WriteString("\n\n")
 	}
-
 	sb.WriteString("=== PROMPT ===\n")
 	sb.WriteString(promptContent)
-
 	return sb.String()
 }
 
@@ -257,8 +255,8 @@ Options:
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
 
 Options:
-  --poll      Poll interval (default: 200ms)
-  --debounce  Stable window to consider file "saved" (default: 350ms)
+  --poll       Poll interval (default: 200ms)
+  --debounce   Stable window to consider file "saved" (default: 350ms)
 `)
 		return
 	case "help":
@@ -286,10 +284,10 @@ Usage:
   aic <command> [args]
 
 Commands:
-  init        Create ./ai with prompt.md only
-  watch       Watch ./ai/prompt.md and copy expanded output to clipboard on save
-  help        Show help (optionally for a command)
-  version     Print version
+  init         Create ./ai with prompt.md only
+  watch        Watch ./ai/prompt.md and copy expanded output to clipboard on save
+  help         Show help (optionally for a command)
+  version      Print version
 
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
@@ -306,7 +304,6 @@ func (c *CLI) cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 	force := fs.Bool("force", false, "remove existing ./ai dir before creating it")
-
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
