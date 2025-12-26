@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,13 +15,13 @@ import (
 
 type DollarToken struct {
 	TokenCtx
-	literal string // includes leading "$"
-
-	// parsed during Validate()
+	literal   string // includes leading "$"
 	isSh      bool
 	shCmd     string // command to execute (decoded string literal)
 	shCmdDisp string // for printing (the quoted literal as provided)
 	isClr     bool
+	isSk      bool   // New: Is this a skill token?
+	skName    string // New: The name of the skill (filename without .md)
 }
 
 func NewDollarToken(lit string) PromptToken {
@@ -29,16 +30,12 @@ func NewDollarToken(lit string) PromptToken {
 
 func (t *DollarToken) Type() PromptTokenType { return PromptTokenDollar }
 func (t *DollarToken) Literal() string       { return t.literal }
-
 func (t *DollarToken) Value() string {
 	return strings.TrimPrefix(t.literal, "$")
 }
 
-// parseDollarCall parses `name(args)` from a `$...` token value (value excludes leading `$`).
-// Returns (name, argsInsideParens, okCallForm).
 func parseDollarCall(val string) (string, string, bool) {
 	s := strings.TrimSpace(val)
-
 	open := strings.IndexByte(s, '(')
 	if open < 0 {
 		return "", "", false
@@ -46,29 +43,24 @@ func parseDollarCall(val string) (string, string, bool) {
 	if !strings.HasSuffix(s, ")") {
 		return "", "", false
 	}
-
 	name := strings.TrimSpace(s[:open])
 	args := s[open+1 : len(s)-1] // inside parentheses
 	return name, args, true
 }
 
-// parseSingleDoubleQuotedStringArg expects args containing exactly one double-quoted string,
-// allowing whitespace around it, and returns (decoded, display, error).
 func parseSingleDoubleQuotedStringArg(args string) (string, string, error) {
 	s := strings.TrimSpace(args)
 	if s == "" {
-		return "", "", fmt.Errorf("$sh: expected 1 string argument")
+		return "", "", fmt.Errorf("expected 1 string argument")
 	}
 	if len(s) < 2 || s[0] != '"' {
-		return "", "", fmt.Errorf(`$sh: argument must be a double-quoted string, e.g. $sh("ls")`)
+		return "", "", fmt.Errorf(`argument must be a double-quoted string`)
 	}
-
 	var out strings.Builder
 	i := 1 // after opening quote
 	escaped := false
 	for i < len(s) {
 		ch := s[i]
-
 		if escaped {
 			switch ch {
 			case '"':
@@ -82,45 +74,34 @@ func parseSingleDoubleQuotedStringArg(args string) (string, string, error) {
 			case 'r':
 				out.WriteByte('\r')
 			default:
-				// keep unknown escapes as literal char (simple + predictable)
 				out.WriteByte(ch)
 			}
 			escaped = false
 			i++
 			continue
 		}
-
 		if ch == '\\' {
 			escaped = true
 			i++
 			continue
 		}
-
 		if ch == '"' {
-			// closing quote
 			i++
 			break
 		}
-
 		out.WriteByte(ch)
 		i++
 	}
-
 	if escaped {
-		return "", "", fmt.Errorf("$sh: trailing backslash in string")
+		return "", "", fmt.Errorf("trailing backslash in string")
 	}
-
-	// must have ended on a closing quote
 	if i <= 1 || i > len(s) || s[i-1] != '"' {
-		return "", "", fmt.Errorf("$sh: unterminated string")
+		return "", "", fmt.Errorf("unterminated string")
 	}
-
-	// only whitespace allowed after closing quote
 	rest := strings.TrimSpace(s[i:])
 	if rest != "" {
-		return "", "", fmt.Errorf("$sh: expected exactly one string argument")
+		return "", "", fmt.Errorf("expected exactly one string argument")
 	}
-
 	decoded := out.String()
 	display := `"` + decoded + `"` // normalized display (decoded)
 	if decoded == "" {
@@ -134,23 +115,21 @@ func (t *DollarToken) Validate(d *AiDir) error {
 	t.shCmd = ""
 	t.shCmdDisp = ""
 	t.isClr = false
+	t.isSk = false
+	t.skName = ""
 
 	val := t.Value()
 	name, args, ok := parseDollarCall(val)
 
-	// All dollar commands must be call-form now.
 	if !ok {
-		// If it's some unknown literal like "$foo" we still allow it to render literally,
-		// but for known commands we enforce call form via checks below.
-		// We'll decide based on prefix matches:
 		trim := strings.TrimSpace(val)
-		if trim == "clr" || trim == "sh" || strings.HasPrefix(trim, "clr") || strings.HasPrefix(trim, "sh") {
+		if trim == "clr" || trim == "sh" || trim == "sk" ||
+			strings.HasPrefix(trim, "clr") || strings.HasPrefix(trim, "sh") || strings.HasPrefix(trim, "sk") {
 			return fmt.Errorf("$: commands must be called with (), e.g. $clr() or $sh(\"ls\")")
 		}
 		return nil
 	}
 
-	// known commands
 	switch name {
 	case "clr":
 		if strings.TrimSpace(args) != "" {
@@ -158,28 +137,42 @@ func (t *DollarToken) Validate(d *AiDir) error {
 		}
 		t.isClr = true
 		return nil
-
 	case "sh":
 		cmd, disp, err := parseSingleDoubleQuotedStringArg(args)
 		if err != nil {
-			return err
+			return fmt.Errorf("$sh: %w", err)
 		}
-
-		// basic hardening
 		if strings.ContainsRune(cmd, '\x00') {
 			return fmt.Errorf("$sh: command contains NUL")
 		}
 		if len(cmd) > 4096 {
 			return fmt.Errorf("$sh: command too long")
 		}
-
 		t.isSh = true
 		t.shCmd = cmd
 		t.shCmdDisp = disp
 		return nil
-
+	case "sk":
+		// New Skill Logic
+		skillName, _, err := parseSingleDoubleQuotedStringArg(args)
+		if err != nil {
+			return fmt.Errorf("$sk: %w", err)
+		}
+		if d == nil || d.Skills == "" {
+			return fmt.Errorf("$sk: skills directory not configured")
+		}
+		// Validate file existence
+		target := filepath.Join(d.Skills, skillName+".md")
+		if _, err := os.Stat(target); err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("$sk: skill not found: %s (checked %s)", skillName, target)
+			}
+			return fmt.Errorf("$sk: error checking skill: %w", err)
+		}
+		t.isSk = true
+		t.skName = skillName
+		return nil
 	default:
-		// Unknown $name(...) forms are allowed (render literally)
 		return nil
 	}
 }
@@ -203,14 +196,12 @@ func renderShOutput(cmdDisplay string, out []byte) string {
 		}
 		return sb.String()
 	}
-
 	s := string(out)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return s
 }
 
 func (t *DollarToken) Render(d *AiDir) (string, error) {
-	// $clr()
 	if t.isClr {
 		if d == nil {
 			return "", fmt.Errorf("$clr: missing ai dir")
@@ -219,41 +210,67 @@ func (t *DollarToken) Render(d *AiDir) (string, error) {
 		if path == "" {
 			return "", fmt.Errorf("$clr: missing prompt path")
 		}
-
-		if err := os.WriteFile(path, []byte(promptHeader), 0o644); err != nil {
+		var content string
+		if b, err := os.ReadFile(path); err == nil {
+			content = string(b)
+			content = strings.ReplaceAll(content, "\r\n", "\n")
+		}
+		newContent := promptHeader
+		const separator = "\n---\n"
+		if idx := strings.Index(content, separator); idx >= 0 {
+			cut := idx + len(separator)
+			newContent = content[:cut]
+		}
+		if err := os.WriteFile(path, []byte(newContent), 0o644); err != nil {
 			return "", fmt.Errorf("$clr: write prompt.md: %w", err)
 		}
 		return "", nil
 	}
 
-	// $sh("...")
+	if t.isSk {
+		// New Skill Rendering
+		if d == nil {
+			return "", fmt.Errorf("$sk: missing ai dir")
+		}
+		path := filepath.Join(d.Skills, t.skName+".md")
+		content, ok, _, err := ReadTextFile(path)
+		if err != nil {
+			return "", fmt.Errorf("$sk: read failed: %w", err)
+		}
+		if !ok {
+			return "", fmt.Errorf("$sk: file is binary or invalid utf8: %s", t.skName)
+		}
+
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("=== SKILL: %s ===\n", t.skName))
+		sb.WriteString(content)
+		if !strings.HasSuffix(content, "\n") {
+			sb.WriteString("\n")
+		}
+		return sb.String(), nil
+	}
+
 	if t.isSh {
 		wd := ""
 		if d != nil {
 			wd = d.WorkingDir
 		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-
 		c := exec.CommandContext(ctx, "sh", "-lc", t.shCmd)
 		if wd != "" {
 			c.Dir = wd
 		}
-
 		out, err := c.CombinedOutput()
-
 		const maxOut = 256 * 1024
 		if len(out) > maxOut {
 			out = out[:maxOut]
 			out = append(out, []byte("\n...[truncated]\n")...)
 		}
-
 		cmdDisplay := t.shCmdDisp
 		if cmdDisplay == "" {
 			cmdDisplay = `"` + t.shCmd + `"`
 		}
-
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Sprintf("sh ERROR: timeout after 2s\nCMD: %s\n", cmdDisplay), nil
 		}
@@ -272,11 +289,8 @@ func (t *DollarToken) Render(d *AiDir) (string, error) {
 			}
 			return sb.String(), nil
 		}
-
 		return renderShOutput(cmdDisplay, out), nil
 	}
-
-	// default: render literally
 	return t.literal, nil
 }
 

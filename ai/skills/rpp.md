@@ -1,0 +1,2 @@
+Okay, we have a binary on system called `rpp` which can take text on our clipboard and overwrite a file like `rpp main.go`
+This means if you provide me with a code snip, you should also provide me with an rpp command i can use to overwrite the file.

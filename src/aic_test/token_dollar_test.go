@@ -9,7 +9,10 @@ import (
 	"github.com/phillip-england/aic/src/aic"
 )
 
-const promptHeaderDollar = "# LLM MODEL THIS IS MY PROMPT:\n"
+const promptHeaderDollar = `---
+
+---
+`
 
 func TestDollarToken_Validate_ClrRequiresParens(t *testing.T) {
 	td := t.TempDir()
@@ -25,7 +28,6 @@ func TestDollarToken_Validate_ClrRequiresParens(t *testing.T) {
 	if len(pr.Tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
-
 	// $clr (no parens) must be downgraded
 	if pr.Tokens[1].Type() != aic.PromptTokenRaw {
 		t.Fatalf("expected $clr to be downgraded to Raw when missing (), got %v", pr.Tokens[1].Type())
@@ -37,7 +39,6 @@ func TestDollarToken_Validate_ClrRequiresParens(t *testing.T) {
 
 func TestDollarToken_Validate_ClrAcceptsEmptyCall(t *testing.T) {
 	td := t.TempDir()
-
 	oldwd, _ := os.Getwd()
 	if err := os.Chdir(td); err != nil {
 		t.Fatalf("chdir: %v", err)
@@ -56,13 +57,13 @@ func TestDollarToken_Validate_ClrAcceptsEmptyCall(t *testing.T) {
 	if len(pr.Tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
-
 	if pr.Tokens[1].Type() != aic.PromptTokenDollar {
 		t.Fatalf("expected $clr() to remain Dollar token, got %v", pr.Tokens[1].Type())
 	}
 
 	// Rendering should clear the prompt file and not output the token text.
 	// Put something in prompt.md so we can observe it being overwritten.
+	// We append content *after* the header to simulate usage.
 	if err := os.WriteFile(aiDir.PromptPath(), []byte(promptHeaderDollar+"x $clr() y\n"), 0o644); err != nil {
 		t.Fatalf("write prompt.md: %v", err)
 	}
@@ -71,6 +72,7 @@ func TestDollarToken_Validate_ClrAcceptsEmptyCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
+
 	if strings.Contains(out, "$clr") {
 		t.Fatalf("expected rendered output not to include $clr, got:\n%s", out)
 	}
@@ -79,6 +81,9 @@ func TestDollarToken_Validate_ClrAcceptsEmptyCall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read prompt.md: %v", err)
 	}
+
+	// It should revert to just the header (because the separator was present in promptHeaderDollar,
+	// and we cleared everything after it).
 	if string(got) != promptHeaderDollar {
 		t.Fatalf("expected prompt.md to be cleared to header.\nwant: %q\ngot:  %q", promptHeaderDollar, string(got))
 	}
@@ -110,7 +115,6 @@ func TestDollarToken_Validate_ShRequiresStringArg(t *testing.T) {
 
 func TestDollarToken_Render_ShExecutesCommand(t *testing.T) {
 	td := t.TempDir()
-
 	oldwd, _ := os.Getwd()
 	if err := os.Chdir(td); err != nil {
 		t.Fatalf("chdir: %v", err)
@@ -141,7 +145,6 @@ func TestDollarToken_Render_ShExecutesCommand(t *testing.T) {
 
 func TestDollarToken_Render_ShDecodesEscapes(t *testing.T) {
 	td := t.TempDir()
-
 	oldwd, _ := os.Getwd()
 	if err := os.Chdir(td); err != nil {
 		t.Fatalf("chdir: %v", err)

@@ -14,10 +14,32 @@ func NewCompressor() *Compressor {
 	}
 }
 
-// Compress applies compression steps to the provided string.
-// For now, it only removes empty/whitespace-only lines.
+// Compress applies cleanup steps to the provided string.
+// It removes full-line comments (starting with //) and empty/whitespace-only lines.
 func (c *Compressor) Compress(in string) string {
-	return removeEmptyLines(in)
+	// First remove comments, then clean up any resulting empty lines
+	s := removeComments(in)
+	return removeEmptyLines(s)
+}
+
+// removeComments removes any line that starts with "//" (ignoring leading whitespace).
+// Note: This does not remove "#" lines to preserve Markdown headers.
+func removeComments(in string) string {
+	if in == "" {
+		return ""
+	}
+	// Normalize newlines
+	s := strings.ReplaceAll(in, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		// specific check for double-slash comments
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }
 
 // removeEmptyLines removes any line that is empty or contains only whitespace.
@@ -26,26 +48,20 @@ func removeEmptyLines(in string) string {
 	if in == "" {
 		return ""
 	}
-
 	// Normalize newlines just in case.
 	s := strings.ReplaceAll(in, "\r\n", "\n")
-
 	hadTrailing := strings.HasSuffix(s, "\n")
-
 	lines := strings.Split(s, "\n")
 	out := make([]string, 0, len(lines))
-
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		out = append(out, line)
 	}
-
 	if len(out) == 0 {
 		return ""
 	}
-
 	res := strings.Join(out, "\n")
 	if hadTrailing {
 		res += "\n"

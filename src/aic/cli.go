@@ -35,11 +35,14 @@ func (c *CLI) Run(args []string) error {
 	if c.Err == nil {
 		c.Err = os.Stderr
 	}
+
 	if len(args) == 0 {
 		return c.cmdDefault()
 	}
+
 	cmd := strings.TrimSpace(args[0])
 	sub := args[1:]
+
 	switch cmd {
 	case "help", "-h", "--help":
 		topic := ""
@@ -76,13 +79,10 @@ func (c *CLI) cmdDefault() error {
 		return err
 	}
 
-	// Still print to stdout
 	fmt.Fprint(c.Out, out)
 	if !strings.HasSuffix(out, "\n") {
 		fmt.Fprintln(c.Out)
 	}
-
-	// Small hint to stderr so stdout stays clean for piping
 	fmt.Fprintln(c.Err, "[copied output to clipboard]")
 	return nil
 }
@@ -90,9 +90,9 @@ func (c *CLI) cmdDefault() error {
 func (c *CLI) cmdWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
-
 	poll := fs.Duration("poll", 200*time.Millisecond, "poll interval for file changes")
 	debounce := fs.Duration("debounce", 350*time.Millisecond, "debounce window to treat changes as a single save")
+
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -106,8 +106,6 @@ func (c *CLI) cmdWatch(args []string) error {
 	}
 
 	promptPath := aiDir.PromptPath()
-
-	// Ensure file exists (init writes it, but just in case)
 	if _, err := os.Stat(promptPath); err != nil {
 		return fmt.Errorf("prompt.md not found: %s", promptPath)
 	}
@@ -115,42 +113,33 @@ func (c *CLI) cmdWatch(args []string) error {
 	fmt.Fprintf(c.Err, "Watching: %s\n", promptPath)
 	fmt.Fprintln(c.Err, "Press Ctrl+C to stop.")
 
-	// Handle Ctrl+C / SIGTERM
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
-	// Track last observed mod time + size
 	lastMod, lastSize, err := fileModSize(promptPath)
 	if err != nil {
 		return err
 	}
 
-	// Debounce state
 	var pending bool
 	var pendingSince time.Time
-
 	ticker := time.NewTicker(*poll)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-stop:
-			// Don't include "\n" in the argument to Fprintln; it already adds one.
 			fmt.Fprintln(c.Err, "")
 			fmt.Fprintln(c.Err, "Stopped.")
 			return nil
-
 		case <-ticker.C:
 			mod, size, statErr := fileModSize(promptPath)
 			if statErr != nil {
-				// If it disappears temporarily during save, just keep polling.
 				continue
 			}
-
 			changed := mod.After(lastMod) || size != lastSize
 			if changed {
-				// update baseline immediately, but mark pending
 				lastMod = mod
 				lastSize = size
 				pending = true
@@ -158,17 +147,13 @@ func (c *CLI) cmdWatch(args []string) error {
 				continue
 			}
 
-			// If we saw changes recently, wait until file is stable for debounce window.
 			if pending && time.Since(pendingSince) >= *debounce {
 				pending = false
-
 				out, rerr := c.renderPromptToClipboard(aiDir)
 				if rerr != nil {
 					fmt.Fprintf(c.Err, "render error: %v\n", rerr)
 					continue
 				}
-
-				// Status only; keep stdout clean.
 				fmt.Fprintf(c.Err, "updated clipboard [%d chars]\n", len(out))
 			}
 		}
@@ -183,8 +168,6 @@ func fileModSize(path string) (time.Time, int64, error) {
 	return info.ModTime(), info.Size(), nil
 }
 
-// renderPromptToClipboard reads prompt.md, tokenizes/validates/renders, compresses, and writes to clipboard.
-// Returns the final (compressed) string.
 func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 	text, err := aiDir.PromptText()
 	if err != nil {
@@ -200,24 +183,69 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 		return "", err
 	}
 
-	// Compression pass (wired in; currently removes empty lines only)
 	comp := NewCompressor()
 	out = comp.Compress(out)
+
+	// Apply labels to separate Context from Prompt
+	out = applyLabels(out)
 
 	if err := clipboard.WriteAll(out); err != nil {
 		return "", fmt.Errorf("copy to clipboard: %w", err)
 	}
-
 	return out, nil
+}
+
+// applyLabels transforms the raw "---...---" structure into labeled sections.
+func applyLabels(in string) string {
+	s := strings.TrimSpace(in)
+
+	// Check if the content starts with the standard separator
+	if !strings.HasPrefix(s, "---") {
+		// If structure is missing, return as is (treat whole thing as prompt)
+		return s
+	}
+
+	// Remove the first "---"
+	s = s[3:]
+
+	// Find the second "---" which acts as the closing delimiter for context
+	// We look for "\n---" to ensure we are matching the line break
+	splitIdx := strings.Index(s, "\n---")
+	if splitIdx == -1 {
+		// If closing delimiter is missing, return as is
+		return "---" + s
+	}
+
+	contextContent := strings.TrimSpace(s[:splitIdx])
+
+	// Jump over "\n---" (4 chars) to get the prompt content
+	promptStart := splitIdx + 4
+	promptContent := ""
+	if promptStart < len(s) {
+		promptContent = strings.TrimSpace(s[promptStart:])
+	}
+
+	var sb strings.Builder
+	if contextContent != "" {
+		sb.WriteString("=== CONTEXT ===\n")
+		sb.WriteString(contextContent)
+		sb.WriteString("\n\n")
+	}
+
+	sb.WriteString("=== PROMPT ===\n")
+	sb.WriteString(promptContent)
+
+	return sb.String()
 }
 
 func (c *CLI) printHelp(topic string) {
 	switch topic {
 	case "init":
-		// Use Fprint (raw string already contains trailing newline)
 		fmt.Fprint(c.Out, `Usage:
   aic init [--force]
+
 Creates ./ai and writes ./ai/prompt.md (only).
+
 Options:
   --force   Remove existing ./ai before creating it.
 `)
@@ -225,7 +253,9 @@ Options:
 	case "watch":
 		fmt.Fprint(c.Out, `Usage:
   aic watch [--poll DURATION] [--debounce DURATION]
+
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
+
 Options:
   --poll      Poll interval (default: 200ms)
   --debounce  Stable window to consider file "saved" (default: 350ms)
@@ -234,12 +264,14 @@ Options:
 	case "help":
 		fmt.Fprint(c.Out, `Usage:
   aic help [command]
+
 Shows help for a command (or general help).
 `)
 		return
 	case "version":
 		fmt.Fprint(c.Out, `Usage:
   aic version
+
 Prints the CLI version.
 `)
 		return
@@ -247,16 +279,21 @@ Prints the CLI version.
 	default:
 		fmt.Fprintf(c.Out, "No detailed help for %q.\n\n", topic)
 	}
+
 	fmt.Fprint(c.Out, `aic - minimal CLI
+
 Usage:
   aic <command> [args]
+
 Commands:
-  init       Create ./ai with prompt.md only
-  watch      Watch ./ai/prompt.md and copy expanded output to clipboard on save
-  help       Show help (optionally for a command)
-  version    Print version
+  init        Create ./ai with prompt.md only
+  watch       Watch ./ai/prompt.md and copy expanded output to clipboard on save
+  help        Show help (optionally for a command)
+  version     Print version
+
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
+
 Examples:
   aic
   aic watch
@@ -269,19 +306,23 @@ func (c *CLI) cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
 	force := fs.Bool("force", false, "remove existing ./ai dir before creating it")
+
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+
 	aiDir, err := NewAiDir(*force)
 	if err != nil {
 		return err
 	}
+
 	relRoot := aiDir.Root
 	if wd, werr := os.Getwd(); werr == nil {
 		if rel, rerr := filepath.Rel(wd, aiDir.Root); rerr == nil {
 			relRoot = "." + string(os.PathSeparator) + rel
 		}
 	}
+
 	fmt.Fprintln(c.Out, "Initialized:", relRoot)
 	fmt.Fprintln(c.Out, "  prompt:", filepath.Join(aiDir.Root, "prompt.md"))
 	fmt.Fprintln(c.Out, "  skills:", aiDir.Skills)

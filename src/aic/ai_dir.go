@@ -10,44 +10,34 @@ import (
 type AiDir struct {
 	Root       string
 	WorkingDir string
-
-	Prompts string
-	Skills  string
-
-	Ignore *GitIgnore
+	Skills     string
+	Ignore     *GitIgnore
 }
 
-const promptHeader = `# LLM MODEL THIS IS MY PROMPT:
+const promptHeader = `---
+---
 `
 
-// findAiWorkingDir walks upward from start and returns the directory that contains "ai/".
-// That directory is the "project root" (WorkingDir). Root will be WorkingDir/ai.
 func findAiWorkingDir(start string) (string, error) {
 	start = filepath.Clean(start)
-
-	// normalize for macOS (/var vs /private/var) and symlinks
 	if es, err := filepath.EvalSymlinks(start); err == nil {
 		start = es
 	}
-
 	dir := start
 	for {
 		aiPath := filepath.Join(dir, "ai")
 		if info, err := os.Lstat(aiPath); err == nil && info.IsDir() {
-			// normalize the found project root as well
 			if es, err := filepath.EvalSymlinks(dir); err == nil {
 				dir = es
 			}
 			return dir, nil
 		}
-
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
 		dir = parent
 	}
-
 	return "", fmt.Errorf("ai dir not found from %s (searched upward)", start)
 }
 
@@ -64,11 +54,8 @@ func NewAiDir(force bool) (*AiDir, error) {
 
 	rootAbs := filepath.Join(workingAbs, "ai")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
-
-	promptsAbs := filepath.Join(rootAbs, "prompts")
 	skillsAbs := filepath.Join(rootAbs, "skills")
 
-	// Handle existing directory
 	if info, statErr := os.Lstat(rootAbs); statErr == nil {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
@@ -83,18 +70,14 @@ func NewAiDir(force bool) (*AiDir, error) {
 		return nil, fmt.Errorf("stat ai dir: %w", statErr)
 	}
 
-	// Create ai root + subdirs
 	if err := os.MkdirAll(rootAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", rootAbs, err)
 	}
-	if err := os.MkdirAll(promptsAbs, 0o755); err != nil {
-		return nil, fmt.Errorf("create directory %s: %w", promptsAbs, err)
-	}
+
 	if err := os.MkdirAll(skillsAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", skillsAbs, err)
 	}
 
-	// Write prompt.md
 	if err := os.WriteFile(promptFile, []byte(promptHeader), 0o644); err != nil {
 		return nil, fmt.Errorf("write prompt.md: %w", err)
 	}
@@ -104,7 +87,6 @@ func NewAiDir(force bool) (*AiDir, error) {
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
-		Prompts:    promptsAbs,
 		Skills:     skillsAbs,
 		Ignore:     ign,
 	}, nil
@@ -130,11 +112,7 @@ func OpenAiDir() (*AiDir, error) {
 		return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
 	}
 
-	promptsAbs := filepath.Join(rootAbs, "prompts")
 	skillsAbs := filepath.Join(rootAbs, "skills")
-
-	// Ensure subdirs exist (non-destructive)
-	_ = os.MkdirAll(promptsAbs, 0o755)
 	_ = os.MkdirAll(skillsAbs, 0o755)
 
 	ign, _ := LoadGitIgnore(workingAbs)
@@ -142,7 +120,6 @@ func OpenAiDir() (*AiDir, error) {
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
-		Prompts:    promptsAbs,
 		Skills:     skillsAbs,
 		Ignore:     ign,
 	}, nil
