@@ -181,9 +181,9 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 		return "", err
 	}
 
-	// Step 1: Pre-process (Remove comments and empty lines)
-	// This ensures that commented-out tokens like // $clear() are removed
-	// before the tokenizer even sees them.
+	// Step 1: Pre-process PROMPT (Remove comments and empty lines)
+	// We MUST do this here to prevent execution of commented-out commands
+	// like // $sh("rm -rf ...")
 	processed := PreProcess(text)
 
 	// Step 2: Tokenize and Parse
@@ -199,6 +199,10 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 
 	// Step 4: Apply Labels (Context/Prompt separation)
 	out = applyLabels(out)
+
+	// Step 5: Pre-process FINAL (Remove comments and empty lines from context/includes)
+	// This ensures that included files, context, and the final output format are cleaned.
+	out = PreProcess(out)
 
 	if err := clipboard.WriteAll(out); err != nil {
 		return "", fmt.Errorf("copy to clipboard: %w", err)
@@ -255,8 +259,8 @@ Options:
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
 
 Options:
-  --poll       Poll interval (default: 200ms)
-  --debounce   Stable window to consider file "saved" (default: 350ms)
+  --poll        Poll interval (default: 200ms)
+  --debounce    Stable window to consider file "saved" (default: 350ms)
 `)
 		return
 	case "help":
@@ -284,10 +288,10 @@ Usage:
   aic <command> [args]
 
 Commands:
-  init         Create ./ai with prompt.md only
-  watch        Watch ./ai/prompt.md and copy expanded output to clipboard on save
-  help         Show help (optionally for a command)
-  version      Print version
+  init          Create ./ai with prompt.md only
+  watch         Watch ./ai/prompt.md and copy expanded output to clipboard on save
+  help          Show help (optionally for a command)
+  version       Print version
 
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
