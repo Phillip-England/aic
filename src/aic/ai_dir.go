@@ -14,8 +14,8 @@ type AiDir struct {
 	Ignore     *GitIgnore
 }
 
-const promptHeader = `---
----
+const promptHeader = `===
+===
 `
 
 func findAiWorkingDir(start string) (string, error) {
@@ -23,6 +23,7 @@ func findAiWorkingDir(start string) (string, error) {
 	if es, err := filepath.EvalSymlinks(start); err == nil {
 		start = es
 	}
+
 	dir := start
 	for {
 		aiPath := filepath.Join(dir, "ai")
@@ -46,7 +47,6 @@ func NewAiDir(force bool) (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-
 	workingAbs := filepath.Clean(wd)
 	if es, err := filepath.EvalSymlinks(workingAbs); err == nil {
 		workingAbs = es
@@ -67,23 +67,20 @@ func NewAiDir(force bool) (*AiDir, error) {
 			return nil, fmt.Errorf("remove existing ai dir: %w", err)
 		}
 	} else if !os.IsNotExist(statErr) {
-		return nil, fmt.Errorf("stat ai dir: %w", statErr)
+		return nil, fmt.Errorf("stat ai dir: %w", err)
 	}
 
 	if err := os.MkdirAll(rootAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", rootAbs, err)
 	}
-
 	if err := os.MkdirAll(skillsAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", skillsAbs, err)
 	}
-
 	if err := os.WriteFile(promptFile, []byte(promptHeader), 0o644); err != nil {
 		return nil, fmt.Errorf("write prompt.md: %w", err)
 	}
 
 	ign, _ := LoadGitIgnore(workingAbs) // ignore missing .gitignore
-
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
@@ -97,7 +94,6 @@ func OpenAiDir() (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-
 	workingAbs, err := findAiWorkingDir(wd)
 	if err != nil {
 		return nil, err
@@ -116,7 +112,6 @@ func OpenAiDir() (*AiDir, error) {
 	_ = os.MkdirAll(skillsAbs, 0o755)
 
 	ign, _ := LoadGitIgnore(workingAbs)
-
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,

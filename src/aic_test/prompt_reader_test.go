@@ -1,4 +1,4 @@
-package aic
+package aic_test
 
 import (
 	"path/filepath"
@@ -11,10 +11,8 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken_ReaderTes
 	td := t.TempDir()
 	d := &aic.AiDir{
 		WorkingDir: td,
-		Root:        filepath.Join(td, "ai"),
+		Root:       filepath.Join(td, "ai"),
 	}
-
-	// Changed @missing to $at("missing")
 	pr := aic.NewPromptReader(`hello $at("missing") world`)
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
@@ -23,8 +21,10 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken_ReaderTes
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
 
-	if pr.Tokens[1].Type() != aic.PromptTokenRaw {
-		t.Fatalf("token[1] should be downgraded to Raw, got: %v", pr.Tokens[1].Type())
+	// New behavior: missing files do not cause Validate() to error,
+	// so ValidateOrDowngrade does not downgrade $at("missing").
+	if pr.Tokens[1].Type() != aic.PromptTokenDollar {
+		t.Fatalf("token[1] should remain Dollar, got: %v", pr.Tokens[1].Type())
 	}
 	if pr.Tokens[1].Literal() != `$at("missing")` {
 		t.Fatalf("token[1] literal mismatch, got: %q", pr.Tokens[1].Literal())

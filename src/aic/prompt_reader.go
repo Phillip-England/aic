@@ -5,9 +5,28 @@ import (
 	"strings"
 )
 
+type PostActionKind string
+
+const (
+	PostActionJump  PostActionKind = "jump"
+	PostActionClick PostActionKind = "click"
+)
+
+type PostAction struct {
+	Kind  PostActionKind
+	Index int
+	Lit   string
+
+	X int
+	Y int
+
+	Button string
+}
+
 type PromptReader struct {
-	Text   string
-	Tokens []PromptToken
+	Text        string
+	Tokens      []PromptToken
+	PostActions []PostAction
 }
 
 func NewPromptReader(text string) *PromptReader {
@@ -18,8 +37,6 @@ func NewPromptReader(text string) *PromptReader {
 	}
 }
 
-// ValidateOrDowngrade runs validation for each token using AiDir context.
-// If validation fails, token becomes Raw with same literal.
 func (p *PromptReader) ValidateOrDowngrade(d *AiDir) {
 	if len(p.Tokens) == 0 {
 		return
@@ -35,15 +52,19 @@ func (p *PromptReader) ValidateOrDowngrade(d *AiDir) {
 	p.Tokens = out
 }
 
-// BindTokens attaches this PromptReader + index to each token via AfterValidate.
 func (p *PromptReader) BindTokens() {
 	for i, tok := range p.Tokens {
 		_ = tok.AfterValidate(p, i)
 	}
 }
 
-// Render iterates tokens and concatenates each token's rendered output.
+func (p *PromptReader) AddPostAction(a PostAction) {
+	p.PostActions = append(p.PostActions, a)
+}
+
 func (p *PromptReader) Render(d *AiDir) (string, error) {
+	p.PostActions = nil
+
 	var sb strings.Builder
 	for _, tok := range p.Tokens {
 		part, err := tok.Render(d)
@@ -53,35 +74,6 @@ func (p *PromptReader) Render(d *AiDir) (string, error) {
 		sb.WriteString(part)
 	}
 	return sb.String(), nil
-}
-
-func (p *PromptReader) RemoveToken(i int) bool {
-	if i < 0 || i >= len(p.Tokens) {
-		return false
-	}
-	p.Tokens = append(p.Tokens[:i], p.Tokens[i+1:]...)
-	p.BindTokens()
-	return true
-}
-
-func (p *PromptReader) InsertToken(i int, tok PromptToken) {
-	if i < 0 {
-		i = 0
-	}
-	if i > len(p.Tokens) {
-		i = len(p.Tokens)
-	}
-	p.Tokens = append(p.Tokens[:i], append([]PromptToken{tok}, p.Tokens[i:]...)...)
-	p.BindTokens()
-}
-
-func (p *PromptReader) ReplaceToken(i int, tok PromptToken) bool {
-	if i < 0 || i >= len(p.Tokens) {
-		return false
-	}
-	p.Tokens[i] = tok
-	p.BindTokens()
-	return true
 }
 
 func (p *PromptReader) String() string {

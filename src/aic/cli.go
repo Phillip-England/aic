@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -35,7 +37,6 @@ func (c *CLI) Run(args []string) error {
 	if c.Err == nil {
 		c.Err = os.Stderr
 	}
-
 	if len(args) == 0 {
 		return c.cmdDefault()
 	}
@@ -90,6 +91,7 @@ func (c *CLI) cmdDefault() error {
 func (c *CLI) cmdWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
+
 	poll := fs.Duration("poll", 200*time.Millisecond, "poll interval for file changes")
 	debounce := fs.Duration("debounce", 350*time.Millisecond, "debounce window to treat changes as a single save")
 
@@ -113,7 +115,6 @@ func (c *CLI) cmdWatch(args []string) error {
 	fmt.Fprintf(c.Err, "Watching: %s\n", promptPath)
 	fmt.Fprintln(c.Err, "Press Ctrl+C to stop.")
 
-	// Perform initial render so clipboard is ready immediately
 	if out, err := c.renderPromptToClipboard(aiDir); err != nil {
 		fmt.Fprintf(c.Err, "initial render error: %v\n", err)
 	} else {
@@ -131,6 +132,7 @@ func (c *CLI) cmdWatch(args []string) error {
 
 	var pending bool
 	var pendingSince time.Time
+
 	ticker := time.NewTicker(*poll)
 	defer ticker.Stop()
 
@@ -145,6 +147,7 @@ func (c *CLI) cmdWatch(args []string) error {
 			if statErr != nil {
 				continue
 			}
+
 			changed := mod.After(lastMod) || size != lastSize
 			if changed {
 				lastMod = mod
@@ -181,49 +184,92 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, error) {
 		return "", err
 	}
 
-	// Step 1: Pre-process PROMPT (Remove comments and empty lines)
-	// We MUST do this here to prevent execution of commented-out commands
-	// like // $sh("rm -rf ...")
 	processed := PreProcess(text)
-
-	// Step 2: Tokenize and Parse
 	reader := NewPromptReader(processed)
 	reader.ValidateOrDowngrade(aiDir)
 	reader.BindTokens()
 
-	// Step 3: Render (Execute tokens)
 	out, err := reader.Render(aiDir)
 	if err != nil {
 		return "", err
 	}
 
-	// Step 4: Apply Labels (Context/Prompt separation)
 	out = applyLabels(out)
-
-	// Step 5: Pre-process FINAL (Remove comments and empty lines from context/includes)
-	// This ensures that included files, context, and the final output format are cleaned.
 	out = PreProcess(out)
 
 	if err := clipboard.WriteAll(out); err != nil {
-		return "", fmt.Errorf("copy to clipboard: %w", err)
+		return "", err
+	}
+
+	if err := executePostActions(reader.PostActions); err != nil {
+		fmt.Fprintln(c.Err, "post-action error:", err)
 	}
 
 	return out, nil
 }
 
+func executePostActions(actions []PostAction) error {
+	for _, a := range actions {
+		switch a.Kind {
+		case PostActionJump:
+			if err := mouseJump(a.X, a.Y); err != nil {
+				return err
+			}
+		case PostActionClick:
+			if err := mouseClick(a.Button); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func mouseJump(x, y int) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("cliclick", fmt.Sprintf("m:%d,%d", x, y)).Run()
+	case "linux":
+		return exec.Command("xdotool", "mousemove", fmt.Sprint(x), fmt.Sprint(y)).Run()
+	default:
+		return fmt.Errorf("mouse jump unsupported on %s", runtime.GOOS)
+	}
+}
+
+func mouseClick(btn string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		if btn == "right" {
+			return exec.Command("cliclick", "rc:.").Run()
+		}
+		return exec.Command("cliclick", "c:.").Run()
+	case "linux":
+		if btn == "right" {
+			return exec.Command("xdotool", "click", "3").Run()
+		}
+		return exec.Command("xdotool", "click", "1").Run()
+	default:
+		return fmt.Errorf("mouse click unsupported on %s", runtime.GOOS)
+	}
+}
+
 func applyLabels(in string) string {
 	s := strings.TrimSpace(in)
-	if !strings.HasPrefix(s, "---") {
+	if !strings.HasPrefix(s, "===") {
 		return s
 	}
+
+	// Strip first "==="
 	s = s[3:]
-	splitIdx := strings.Index(s, "\n---")
+
+	const separator = "\n===\n"
+	splitIdx := strings.Index(s, separator)
 	if splitIdx == -1 {
-		return "---" + s
+		return "===" + s
 	}
 
 	contextContent := strings.TrimSpace(s[:splitIdx])
-	promptStart := splitIdx + 4
+	promptStart := splitIdx + len(separator)
+
 	promptContent := ""
 	if promptStart < len(s) {
 		promptContent = strings.TrimSpace(s[promptStart:])
@@ -245,9 +291,10 @@ func (c *CLI) printHelp(topic string) {
 	case "init":
 		fmt.Fprint(c.Out, `Usage:
   aic init [--force]
-
 Creates ./ai and writes ./ai/prompt.md (only).
-
+prompt.md starts with:
+  ===
+  ===
 Options:
   --force   Remove existing ./ai before creating it.
 `)
@@ -255,9 +302,7 @@ Options:
 	case "watch":
 		fmt.Fprint(c.Out, `Usage:
   aic watch [--poll DURATION] [--debounce DURATION]
-
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
-
 Options:
   --poll        Poll interval (default: 200ms)
   --debounce    Stable window to consider file "saved" (default: 350ms)
@@ -266,14 +311,12 @@ Options:
 	case "help":
 		fmt.Fprint(c.Out, `Usage:
   aic help [command]
-
 Shows help for a command (or general help).
 `)
 		return
 	case "version":
 		fmt.Fprint(c.Out, `Usage:
   aic version
-
 Prints the CLI version.
 `)
 		return
@@ -283,18 +326,21 @@ Prints the CLI version.
 	}
 
 	fmt.Fprint(c.Out, `aic - minimal CLI
-
 Usage:
   aic <command> [args]
-
 Commands:
   init          Create ./ai with prompt.md only
   watch         Watch ./ai/prompt.md and copy expanded output to clipboard on save
   help          Show help (optionally for a command)
   version       Print version
-
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
+
+Tokens:
+  $path("...")      include files under project root (alias: $at)
+  $shell("...")     run a shell command (alias: $sh)
+  $clear()          clear prompt.md back to header
+  $skill("name")    include a skill markdown file
 
 Examples:
   aic

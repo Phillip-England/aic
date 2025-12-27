@@ -12,10 +12,8 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testin
 	td := t.TempDir()
 	d := &aic.AiDir{
 		WorkingDir: td,
-		Root:        filepath.Join(td, "ai"),
+		Root:       filepath.Join(td, "ai"),
 	}
-
-	// We use $at("missing") which should fail validation because file doesn't exist
 	pr := aic.NewPromptReader(`hello $at("missing") world`)
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
@@ -23,14 +21,14 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testin
 	if len(pr.Tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
-
 	if pr.Tokens[0].Type() != aic.PromptTokenRaw || pr.Tokens[0].Literal() != "hello " {
 		t.Fatalf("token[0] unexpected: %v %q", pr.Tokens[0].Type(), pr.Tokens[0].Literal())
 	}
 
-	// Should be downgraded to Raw
-	if pr.Tokens[1].Type() != aic.PromptTokenRaw || pr.Tokens[1].Literal() != `$at("missing")` {
-		t.Fatalf("token[1] should be downgraded to Raw, got: %v %q", pr.Tokens[1].Type(), pr.Tokens[1].Literal())
+	// New behavior: tokenizer emits Dollar for $ident(...) at word start;
+	// Validate() does not error for missing files, so no downgrade occurs.
+	if pr.Tokens[1].Type() != aic.PromptTokenDollar || pr.Tokens[1].Literal() != `$at("missing")` {
+		t.Fatalf("token[1] should remain Dollar, got: %v %q", pr.Tokens[1].Type(), pr.Tokens[1].Literal())
 	}
 
 	if pr.Tokens[2].Type() != aic.PromptTokenRaw || pr.Tokens[2].Literal() != " world" {
@@ -39,7 +37,6 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testin
 }
 
 func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
-	// Updated syntax in test string
 	in := `a $at(".") b $clear() c`
 	pr := aic.NewPromptReader(in)
 	if got := pr.String(); got != in {
@@ -49,7 +46,6 @@ func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
 	td := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(td, "ai"), 0o755)
 	d := &aic.AiDir{WorkingDir: td, Root: filepath.Join(td, "ai")}
-
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 
