@@ -8,6 +8,7 @@ require (
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/dblohm7/wingoes v0.0.0-20250822163801-6d8e6105c62d // indirect
 	github.com/ebitengine/purego v0.9.1 // indirect
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gen2brain/shm v0.1.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.0 // indirect
