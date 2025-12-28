@@ -14,8 +14,6 @@ func TestTokenizePrompt_Table(t *testing.T) {
 		types []aic.PromptTokenType
 		lits  []string
 	}{
-		// ... existing cases ...
-
 		{
 			name:  "$type with modifier list",
 			in:    `a $type("v", ["CONTROL"]) b`,
@@ -27,6 +25,24 @@ func TestTokenizePrompt_Table(t *testing.T) {
 			in:    `a $type("hello", ["SHIFT"], 15) b`,
 			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
 			lits:  []string{"a ", `$type("hello", ["SHIFT"], 15)`, " b"},
+		},
+		{
+			name:  "$sleep with int ms",
+			in:    `a $sleep(250) b`,
+			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
+			lits:  []string{"a ", `$sleep(250)`, " b"},
+		},
+		{
+			name:  `$sleep with duration string`,
+			in:    `a $sleep("750ms") b`,
+			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
+			lits:  []string{"a ", `$sleep("750ms")`, " b"},
+		},
+		{
+			name:  `$press with key string`,
+			in:    `a $press("BACKSPACE") b`,
+			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
+			lits:  []string{"a ", `$press("BACKSPACE")`, " b"},
 		},
 	}
 
@@ -45,7 +61,6 @@ func TestTokenizePrompt_Table(t *testing.T) {
 					t.Fatalf("token[%d] literal: expected %q, got %q", i, tt.lits[i], toks[i].Literal())
 				}
 			}
-
 			var out string
 			for _, tok := range toks {
 				out += tok.Literal()

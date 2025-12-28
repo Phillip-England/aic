@@ -14,13 +14,16 @@ var dollarHandlers = map[string]DollarHandler{
 
 	"shell": ShellHandler{},
 	"sh":    ShellHandler{},
-	"skill": SkillHandler{},
-	"path":  PathHandler{},
-	"http":  HttpHandler{},
+
+	"norules": NoRulesHandler{},
+	"path":    PathHandler{},
+	"http":    HttpHandler{},
 
 	"jump":  JumpHandler{},
 	"click": ClickHandler{},
 	"type":  TypeHandler{},
+	"sleep": SleepHandler{},
+	"press": PressHandler{},
 }
 
 func LookupDollarHandler(name string) DollarHandler {

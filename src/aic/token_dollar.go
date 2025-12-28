@@ -4,26 +4,30 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type DollarToken struct {
 	TokenCtx
-	literal string
 
+	literal string
 	name    string
 	args    string
 	argList []string
 	handler DollarHandler
 
-	// jump/click
 	jumpX, jumpY         int
 	jumpXExpr, jumpYExpr string
-	clickButton          string
 
-	// type
+	clickButton string
+
 	typeText    string
 	typeMods    []string
 	typeDelayMs int
+
+	sleepDur time.Duration
+
+	pressKey string
 }
 
 func NewDollarToken(lit string) PromptToken {
@@ -94,9 +98,33 @@ func (t *DollarToken) Validate(d *AiDir) error {
 		t.typeDelayMs = delayMs
 		t.handler = TypeHandler{}
 		return nil
+
+	case "sleep":
+		dur, err := parseSleepArgs(args)
+		if err != nil {
+			return fmt.Errorf("$sleep: %w", err)
+		}
+		t.sleepDur = dur
+		t.handler = SleepHandler{}
+		return nil
+
+	case "press":
+		key, err := parseOneArg(args)
+		if err != nil {
+			return fmt.Errorf("$press: %w", err)
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return fmt.Errorf("$press: key cannot be empty")
+		}
+		if !looksLikeHotkeyKey(key) {
+			return fmt.Errorf("$press: unsupported key %q", key)
+		}
+		t.pressKey = key
+		t.handler = PressHandler{}
+		return nil
 	}
 
-	// Default: parse as quoted string args (existing behavior)
 	list, err := parseMultiStringArgs(args)
 	if err != nil {
 		return err
@@ -107,7 +135,6 @@ func (t *DollarToken) Validate(d *AiDir) error {
 	if h == nil {
 		return nil
 	}
-
 	if err := h.Validate(list, d); err != nil {
 		return err
 	}
@@ -156,6 +183,26 @@ func (t *DollarToken) Render(d *AiDir) (string, error) {
 		})
 		return "", nil
 
+	case "sleep":
+		t.Reader().AddPostAction(PostAction{
+			Phase: PostActionAfter,
+			Kind:  PostActionSleep,
+			Index: t.Index(),
+			Lit:   t.literal,
+			Sleep: t.sleepDur,
+		})
+		return "", nil
+
+	case "press":
+		t.Reader().AddPostAction(PostAction{
+			Phase: PostActionAfter,
+			Kind:  PostActionPress,
+			Index: t.Index(),
+			Lit:   t.literal,
+			Key:   t.pressKey,
+		})
+		return "", nil
+
 	default:
 		return t.handler.Render(d, t.Reader(), t.Index(), t.literal, t.argList)
 	}
@@ -185,7 +232,6 @@ func parseIntOrIdentPair(args string) (x int, y int, xExpr string, yExpr string,
 	if left == "" || right == "" {
 		return 0, 0, "", "", fmt.Errorf("expected two values (x,y)")
 	}
-
 	parseSide := func(s string) (int, string, error) {
 		if n, aerr := strconv.Atoi(s); aerr == nil {
 			return n, "", nil
@@ -195,7 +241,6 @@ func parseIntOrIdentPair(args string) (x int, y int, xExpr string, yExpr string,
 		}
 		return 0, "", fmt.Errorf("invalid value %q (want int or IDENT)", s)
 	}
-
 	xv, xe, e1 := parseSide(left)
 	if e1 != nil {
 		return 0, 0, "", "", e1

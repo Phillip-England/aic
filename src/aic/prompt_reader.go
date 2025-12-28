@@ -3,6 +3,7 @@ package aic
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 type PostActionKind string
@@ -11,6 +12,8 @@ const (
 	PostActionJump  PostActionKind = "jump"
 	PostActionClick PostActionKind = "click"
 	PostActionType  PostActionKind = "type"
+	PostActionSleep PostActionKind = "sleep"
+	PostActionPress PostActionKind = "press"
 	PostActionClear PostActionKind = "clear"
 )
 
@@ -22,19 +25,25 @@ const (
 )
 
 type PostAction struct {
-	Phase  PostActionPhase
-	Kind   PostActionKind
-	Index  int
-	Lit    string
-	X      int
-	Y      int
-	XExpr  string
-	YExpr  string
+	Phase PostActionPhase
+	Kind  PostActionKind
+	Index int
+	Lit   string
+
+	X     int
+	Y     int
+	XExpr string
+	YExpr string
+
 	Button string
 
 	Text    string
 	Mods    []string
 	DelayMs int
+
+	Sleep time.Duration
+
+	Key string
 }
 
 type PromptReader struct {

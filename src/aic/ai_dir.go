@@ -10,8 +10,9 @@ import (
 type AiDir struct {
 	Root       string
 	WorkingDir string
-	Skills     string
+	Rules      string // Renamed from Skills
 	Vars       string
+	Prompts    string // NEW: prompt history folder
 	Ignore     *GitIgnore
 }
 
@@ -25,7 +26,6 @@ func findAiWorkingDir(start string) (string, error) {
 	if es, err := filepath.EvalSymlinks(start); err == nil {
 		start = es
 	}
-
 	dir := start
 	for {
 		aiPath := filepath.Join(dir, "ai")
@@ -49,7 +49,6 @@ func NewAiDir(force bool) (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-
 	workingAbs := filepath.Clean(wd)
 	if es, err := filepath.EvalSymlinks(workingAbs); err == nil {
 		workingAbs = es
@@ -57,8 +56,9 @@ func NewAiDir(force bool) (*AiDir, error) {
 
 	rootAbs := filepath.Join(workingAbs, "ai")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
-	skillsAbs := filepath.Join(rootAbs, "skills")
+	rulesAbs := filepath.Join(rootAbs, "rules") // Renamed from skills
 	varsAbs := filepath.Join(rootAbs, "vars")
+	promptsAbs := filepath.Join(rootAbs, "prompts") // NEW
 
 	if info, statErr := os.Lstat(rootAbs); statErr == nil {
 		if !info.IsDir() {
@@ -77,22 +77,27 @@ func NewAiDir(force bool) (*AiDir, error) {
 	if err := os.MkdirAll(rootAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", rootAbs, err)
 	}
-	if err := os.MkdirAll(skillsAbs, 0o755); err != nil {
-		return nil, fmt.Errorf("create directory %s: %w", skillsAbs, err)
+	if err := os.MkdirAll(rulesAbs, 0o755); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", rulesAbs, err)
 	}
 	if err := os.MkdirAll(varsAbs, 0o755); err != nil {
 		return nil, fmt.Errorf("create directory %s: %w", varsAbs, err)
 	}
+	if err := os.MkdirAll(promptsAbs, 0o755); err != nil {
+		return nil, fmt.Errorf("create directory %s: %w", promptsAbs, err)
+	}
+
 	if err := os.WriteFile(promptFile, []byte(promptHeader), 0o644); err != nil {
 		return nil, fmt.Errorf("write prompt.md: %w", err)
 	}
 
-	ign, _ := LoadGitIgnore(workingAbs) // ignore missing .gitignore
+	ign, _ := LoadGitIgnore(workingAbs)
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
-		Skills:     skillsAbs,
+		Rules:      rulesAbs,
 		Vars:       varsAbs,
+		Prompts:    promptsAbs,
 		Ignore:     ign,
 	}, nil
 }
@@ -102,7 +107,6 @@ func OpenAiDir() (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-
 	workingAbs, err := findAiWorkingDir(wd)
 	if err != nil {
 		return nil, err
@@ -117,18 +121,22 @@ func OpenAiDir() (*AiDir, error) {
 		return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
 	}
 
-	skillsAbs := filepath.Join(rootAbs, "skills")
-	_ = os.MkdirAll(skillsAbs, 0o755)
+	rulesAbs := filepath.Join(rootAbs, "rules")
+	_ = os.MkdirAll(rulesAbs, 0o755)
 
 	varsAbs := filepath.Join(rootAbs, "vars")
 	_ = os.MkdirAll(varsAbs, 0o755)
+
+	promptsAbs := filepath.Join(rootAbs, "prompts")
+	_ = os.MkdirAll(promptsAbs, 0o755)
 
 	ign, _ := LoadGitIgnore(workingAbs)
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
-		Skills:     skillsAbs,
+		Rules:      rulesAbs,
 		Vars:       varsAbs,
+		Prompts:    promptsAbs,
 		Ignore:     ign,
 	}, nil
 }
@@ -148,4 +156,9 @@ func (d *AiDir) PromptText() (string, error) {
 	s := string(b)
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	return s, nil
+}
+
+// ClearPrompt clears prompt.md back to just the header/context (preserving YAML header or "=== PROMPT ===" marker).
+func (d *AiDir) ClearPrompt() error {
+	return clearPromptPreserveContext(d)
 }
