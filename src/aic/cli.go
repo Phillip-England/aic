@@ -42,14 +42,11 @@ func (c *CLI) Run(args []string) error {
 	if c.Err == nil {
 		c.Err = os.Stderr
 	}
-
 	if len(args) == 0 {
 		return c.cmdDefault()
 	}
-
 	cmd := strings.TrimSpace(args[0])
 	sub := args[1:]
-
 	switch cmd {
 	case "help", "-h", "--help":
 		topic := ""
@@ -65,6 +62,8 @@ func (c *CLI) Run(args []string) error {
 		return c.cmdInit(sub)
 	case "watch":
 		return c.cmdWatch(sub)
+	case "listen":
+		return c.cmdListen(sub)
 	default:
 		fmt.Fprintf(c.Err, "Unknown command: %s\n\n", cmd)
 		c.printHelp("")
@@ -101,10 +100,8 @@ func (c *CLI) cmdDefault() error {
 func (c *CLI) cmdWatch(args []string) error {
 	fs := flag.NewFlagSet("watch", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
-
 	poll := fs.Duration("poll", 200*time.Millisecond, "poll interval for file changes")
 	debounce := fs.Duration("debounce", 350*time.Millisecond, "debounce window to treat changes as a single save")
-
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -122,8 +119,15 @@ func (c *CLI) cmdWatch(args []string) error {
 		return fmt.Errorf("prompt.md not found: %s", promptPath)
 	}
 
+	stopSeq, err := c.startSequenceSystem()
+	if err != nil {
+		return err
+	}
+	defer stopSeq()
+
 	fmt.Fprintf(c.Err, "Watching: %s\n", promptPath)
 	fmt.Fprintln(c.Err, "Press Ctrl+C to stop.")
+	fmt.Fprintln(c.Err, "Sequences: type SPACE ' ; then key (example: ' ;1 prints mouse coords).")
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
@@ -146,6 +150,7 @@ func (c *CLI) cmdWatch(args []string) error {
 			fmt.Fprintln(c.Err, "")
 			fmt.Fprintln(c.Err, "Stopped.")
 			return nil
+
 		case <-ticker.C:
 			mod, size, statErr := fileModSize(promptPath)
 			if statErr != nil {
@@ -159,6 +164,7 @@ func (c *CLI) cmdWatch(args []string) error {
 				pendingSince = time.Now()
 				continue
 			}
+
 			if pending && time.Since(pendingSince) >= *debounce {
 				pending = false
 
@@ -181,6 +187,33 @@ func (c *CLI) cmdWatch(args []string) error {
 			}
 		}
 	}
+}
+
+func (c *CLI) cmdListen(args []string) error {
+	fs := flag.NewFlagSet("listen", flag.ContinueOnError)
+	fs.SetOutput(c.Err)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	stopSeq, err := c.startSequenceSystem()
+	if err != nil {
+		return err
+	}
+	defer stopSeq()
+
+	fmt.Fprintln(c.Err, "Listening for sequences globally.")
+	fmt.Fprintln(c.Err, "Leader is SPACE ' ; then a key. Example: ' ;1 prints mouse coords.")
+	fmt.Fprintln(c.Err, "Press Ctrl+C to stop.")
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(stop)
+
+	<-stop
+	fmt.Fprintln(c.Err, "")
+	fmt.Fprintln(c.Err, "Stopped.")
+	return nil
 }
 
 func fileModSize(path string) (time.Time, int64, error) {
@@ -246,6 +279,7 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, int, int, bool, err
 	if err != nil {
 		return "", 0, 0, false, err
 	}
+
 	out = applyLabels(out)
 	out = PreProcess(out)
 
@@ -304,7 +338,6 @@ func executePostActions(actions []PostAction, phase PostActionPhase, delay time.
 		if a.Phase != phase {
 			continue
 		}
-
 		switch a.Kind {
 		case PostActionJump:
 			x, err := resolveInt(a.X, a.XExpr)
@@ -333,14 +366,14 @@ func executePostActions(actions []PostAction, phase PostActionPhase, delay time.
 			if a.Sleep > 0 {
 				time.Sleep(a.Sleep)
 			} else if a.Sleep == 0 {
-				// explicit no-op sleep allowed
+				// no-op
 			}
 
 		case PostActionPress:
 			pressKey(a.Key)
 
 		case PostActionClear:
-			// no-op (kept for compatibility; prompt is auto-cleared after render)
+			// no-op (reserved)
 		}
 
 		if delay > 0 {
@@ -369,7 +402,6 @@ func pressKey(key string) {
 	if k == "" {
 		return
 	}
-	// robotgo uses names like "enter", "backspace", "tab", "esc", "left", "right", "f1", ...
 	robotgo.KeyTap(k)
 }
 
@@ -387,7 +419,6 @@ func normalizeModifier(mod string) string {
 	case "WIN":
 		u = "WINDOWS"
 	}
-
 	base := func(key string) string {
 		switch key {
 		case "SHIFT":
@@ -410,7 +441,6 @@ func normalizeModifier(mod string) string {
 			return ""
 		}
 	}
-
 	if strings.HasPrefix(u, "LEFT_") {
 		b := base(strings.TrimPrefix(u, "LEFT_"))
 		if b == "" {
@@ -446,7 +476,6 @@ func looksLikeHotkeyKey(s string) bool {
 		}
 		return false
 	}
-
 	k := strings.ToLower(t)
 	switch k {
 	case "enter", "return", "tab", "space", "esc", "escape",
@@ -455,7 +484,6 @@ func looksLikeHotkeyKey(s string) bool {
 		"home", "end", "pageup", "pagedown":
 		return true
 	}
-
 	if len(k) >= 2 && k[0] == 'f' {
 		n := k[1:]
 		if n == "" {
@@ -468,7 +496,6 @@ func looksLikeHotkeyKey(s string) bool {
 		}
 		return true
 	}
-
 	return false
 }
 
@@ -525,22 +552,18 @@ func applyLabels(in string) string {
 	if !strings.HasPrefix(s, "---") {
 		return s
 	}
-	s = s[3:]
-
+	s = s[3:] // skip first ---
 	const separator = "\n---\n"
 	splitIdx := strings.Index(s, separator)
 	if splitIdx == -1 {
 		return "===" + s
 	}
-
 	contextContent := strings.TrimSpace(s[:splitIdx])
 	promptStart := splitIdx + len(separator)
-
 	promptContent := ""
 	if promptStart < len(s) {
 		promptContent = strings.TrimSpace(s[promptStart:])
 	}
-
 	var sb strings.Builder
 	if contextContent != "" {
 		sb.WriteString("=== CONTEXT ===\n")
@@ -562,7 +585,7 @@ Also creates ./ai/rules/, ./ai/vars/, and ./ai/prompts/.
 prompt.md starts with:
   ---
   $path(".")
-  ---
+  === PROMPT ===
 Options:
   --force    Remove existing ./ai before creating it.
 `)
@@ -574,9 +597,19 @@ Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies ou
 Automatically includes all files in ./ai/rules/ unless $norules() is used.
 After each successful copy, the RAW prompt.md is saved to ./ai/prompts/ (keeps last 100)
 and prompt.md is cleared back to its header/context.
+Also runs the global Sequence listener while watching:
+  leader is SPACE ' ; then a key (example: ' ;1 prints mouse coords)
 Options:
   --poll          Poll interval (default: 200ms)
   --debounce      Stable window to consider file "saved" (default: 350ms)
+`)
+		return
+	case "listen":
+		fmt.Fprint(c.Out, `Usage:
+  aic listen
+Runs the global Sequence listener.
+Leader is SPACE ' ; then a key (example: ' ;1 prints mouse coords).
+Press Ctrl+C to stop.
 `)
 		return
 	case "help":
@@ -595,15 +628,15 @@ Prints the CLI version.
 	default:
 		fmt.Fprintf(c.Out, "No detailed help for %q.\n\n", topic)
 	}
-
 	fmt.Fprint(c.Out, `aic - minimal CLI
 Usage:
   aic <command> [args]
 Commands:
-  init           Create ./ai with prompt.md, rules/, vars/, and prompts/
-  watch          Watch ./ai/prompt.md and copy expanded output on save
-  help           Show help (optionally for a command)
-  version        Print version
+  init            Create ./ai with prompt.md, rules/, vars/, and prompts/
+  watch           Watch ./ai/prompt.md and copy expanded output on save
+  listen          Listen globally for leader sequences (SPACE ' ; then key)
+  help            Show help (optionally for a command)
+  version         Print version
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
   Files in ./ai/rules/ are AUTOMATICALLY included at the end of the prompt unless $norules() is present.
@@ -619,6 +652,9 @@ Tokens:
   $press("ENTER")                 press a single key (ENTER, BACKSPACE, TAB, ESC, arrows, F1..F24, etc.)
   $sleep(250)                     sleep for N milliseconds after copy
   $sleep("750ms")                 sleep for a duration string after copy (e.g. "1.2s")
+Sequences (global, when aic watch/listen is running):
+  Leader is SPACE ' ; then a command key
+  Example: ' ;1 prints current mouse coords
 Vars:
   Put KEY=VALUE files in ./ai/vars/ and reference KEY in $jump(...).
   Built-ins:
@@ -627,6 +663,7 @@ Vars:
 Examples:
   aic
   aic watch
+  aic listen
   aic init --force
 `)
 }
@@ -634,9 +671,7 @@ Examples:
 func (c *CLI) cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(c.Err)
-
 	force := fs.Bool("force", false, "remove existing ./ai dir before creating it")
-
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -697,6 +732,7 @@ func promptSectionHasContent(raw string) bool {
 		} else {
 			promptPart = strings.Join(after, "\n")
 		}
+
 		return strings.TrimSpace(PreProcess(promptPart)) != ""
 	}
 
@@ -714,4 +750,30 @@ func promptSectionHasContent(raw string) bool {
 	}
 
 	return strings.TrimSpace(PreProcess(s)) != ""
+}
+
+func (c *CLI) startSequenceSystem() (func(), error) {
+	mgr := NewSequenceManager()
+	if err := mgr.Register(MouseCoordsSequence{}); err != nil {
+		return nil, err
+	}
+
+	listener := NewSequenceListener(mgr)
+
+	// Sequence debug logging removed (sequence system still runs).
+	stop, err := listener.Start(func(key string) error {
+		seq, ok := mgr.Get(key)
+		if !ok {
+			_, _ = fmt.Fprintf(c.Err, "[seq] unknown command %q\n", key)
+			return nil
+		}
+		if err := seq.Run(SeqContext{Out: c.Out, Err: c.Err}); err != nil {
+			_, _ = fmt.Fprintf(c.Err, "[seq %q] error: %v\n", seq.Key(), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stop, nil
 }
