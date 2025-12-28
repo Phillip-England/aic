@@ -15,10 +15,8 @@ import (
 func Watch(pollInterval, debounce time.Duration) error {
 	aiDir, err := dir.OpenAiDir()
 	if err != nil {
-		// Attempt to create if it doesn't exist, though usually we expect init first
 		aiDir, _ = dir.NewAiDir(false)
 	}
-
 	if aiDir == nil {
 		return fmt.Errorf("could not open or create ai directory")
 	}
@@ -47,14 +45,12 @@ func Watch(pollInterval, debounce time.Duration) error {
 				continue
 			}
 
-			// Check if modified
 			if info.ModTime().After(lastMod) {
 				lastMod = info.ModTime()
 				pending = true
 				pendingSince = time.Now()
 			}
 
-			// Debounce logic
 			if pending && time.Since(pendingSince) > debounce {
 				pending = false
 				
@@ -64,7 +60,6 @@ func Watch(pollInterval, debounce time.Duration) error {
 					continue
 				}
 
-				// If it's just the header (empty body), ignore
 				if isBodyEmpty(raw) {
 					continue
 				}
@@ -74,7 +69,7 @@ func Watch(pollInterval, debounce time.Duration) error {
 					fmt.Println("Error:", err)
 				} else {
 					fmt.Println("Done.")
-					// Update lastMod again because Interpreter modified the file (ClearPrompt)
+					// Update lastMod again to avoid loop if modifying file inside Run (ClearPrompt)
 					if i, e := os.Stat(aiDir.PromptPath()); e == nil {
 						lastMod = i.ModTime()
 					}
@@ -86,9 +81,9 @@ func Watch(pollInterval, debounce time.Duration) error {
 
 func isBodyEmpty(s string) bool {
 	parts := strings.Split(s, "---")
+	// Expecting [empty, pre, body]
 	if len(parts) < 3 {
 		return true
 	}
-	// parts[2] is the body
 	return strings.TrimSpace(parts[2]) == ""
 }

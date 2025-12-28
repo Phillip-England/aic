@@ -10,13 +10,8 @@ import (
 	"time"
 )
 
+// Updated to only have 2 separators: Start of file -> Pre-Script -> Separator -> Body
 const PromptHeader = `---
-
----
-
-
----
-
 ---
 `
 
@@ -86,7 +81,6 @@ func OpenAiDir() (*AiDir, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	rootAbs := filepath.Join(workingAbs, "ai")
 	ign, _ := LoadGitIgnore(workingAbs)
 
@@ -123,17 +117,15 @@ func (d *AiDir) ClearPrompt() error {
 	}
 
 	parts := strings.Split(content, "---")
-	if len(parts) < 4 {
+	// We now expect at least 3 parts: [empty, pre-script, body]
+	if len(parts) < 3 {
 		return os.WriteFile(path, []byte(PromptHeader), 0o644)
 	}
 
-	// Trim space to normalize, then format with explicit newlines
-	// so the sections stay open and easy to type in.
 	pre := strings.TrimSpace(parts[1])
-	post := strings.TrimSpace(parts[3])
-
-	newContent := fmt.Sprintf("---\n%s\n---\n\n\n\n\n\n\n\n\n---\n%s\n---", pre, post)
 	
+	// Reconstruct with Pre-script maintained, but Body cleared
+	newContent := fmt.Sprintf("---\n%s\n---\n\n\n\n\n\n\n\n\n", pre)
 	return os.WriteFile(path, []byte(newContent), 0o644)
 }
 
@@ -142,14 +134,11 @@ func (d *AiDir) StashPrompt(raw string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-
 	ts := time.Now().Format("20060102_150405")
 	path := filepath.Join(dir, ts+".md")
-
 	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
 		return err
 	}
-
 	return d.pruneHistory()
 }
 
@@ -158,18 +147,15 @@ func (d *AiDir) pruneHistory() error {
 	if err != nil {
 		return nil
 	}
-
 	var files []string
 	for _, e := range ents {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
 			files = append(files, filepath.Join(d.Prompts, e.Name()))
 		}
 	}
-
 	if len(files) <= MaxPromptHistory {
 		return nil
 	}
-
 	sort.Strings(files) 
 	toDelete := len(files) - MaxPromptHistory
 	for i := 0; i < toDelete; i++ {
@@ -237,7 +223,6 @@ func (d *AiDir) CollectRules() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	var sb strings.Builder
 	sb.WriteString("\n=== RULES ===\n")
 	for _, f := range files {
