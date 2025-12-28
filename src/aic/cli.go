@@ -19,7 +19,6 @@ import (
 )
 
 const Version = "0.0.1"
-
 const actionDelay = 50 * time.Millisecond
 const defaultTypeDelay = 20 * time.Millisecond
 
@@ -42,9 +41,11 @@ func (c *CLI) Run(args []string) error {
 	if c.Err == nil {
 		c.Err = os.Stderr
 	}
+
 	if len(args) == 0 {
 		return c.cmdDefault()
 	}
+
 	cmd := strings.TrimSpace(args[0])
 	sub := args[1:]
 	switch cmd {
@@ -80,10 +81,11 @@ func (c *CLI) cmdDefault() error {
 		}
 	}
 
-	out, mx, my, _, err := c.renderPromptToClipboard(aiDir)
+	out, _, _, _, err := c.renderPromptToClipboard(aiDir)
 	if err != nil {
 		return err
 	}
+
 	if strings.TrimSpace(out) == "" {
 		fmt.Fprintln(c.Err, "[skipped: empty prompt section]")
 		return nil
@@ -93,7 +95,7 @@ func (c *CLI) cmdDefault() error {
 	if !strings.HasSuffix(out, "\n") {
 		fmt.Fprintln(c.Out)
 	}
-	fmt.Fprintf(c.Err, "[copied output to clipboard] mouse=(%d,%d)\n", mx, my)
+	fmt.Fprintf(c.Err, "[copied output to clipboard]\n")
 	return nil
 }
 
@@ -140,7 +142,6 @@ func (c *CLI) cmdWatch(args []string) error {
 
 	var pending bool
 	var pendingSince time.Time
-
 	ticker := time.NewTicker(*poll)
 	defer ticker.Stop()
 
@@ -150,12 +151,12 @@ func (c *CLI) cmdWatch(args []string) error {
 			fmt.Fprintln(c.Err, "")
 			fmt.Fprintln(c.Err, "Stopped.")
 			return nil
-
 		case <-ticker.C:
 			mod, size, statErr := fileModSize(promptPath)
 			if statErr != nil {
 				continue
 			}
+
 			changed := mod.After(lastMod) || size != lastSize
 			if changed {
 				lastMod = mod
@@ -168,22 +169,24 @@ func (c *CLI) cmdWatch(args []string) error {
 			if pending && time.Since(pendingSince) >= *debounce {
 				pending = false
 
-				out, mx, my, modified, rerr := c.renderPromptToClipboard(aiDir)
+				out, _, _, modified, rerr := c.renderPromptToClipboard(aiDir)
 				if rerr != nil {
 					fmt.Fprintf(c.Err, "render error: %v\n", rerr)
 					continue
 				}
+
 				if strings.TrimSpace(out) == "" {
 					fmt.Fprintln(c.Err, "skipped (empty prompt section)")
 					continue
 				}
+
 				if modified {
 					if m, s, err := fileModSize(promptPath); err == nil {
 						lastMod = m
 						lastSize = s
 					}
 				}
-				fmt.Fprintf(c.Err, "updated clipboard [%d chars] mouse=(%d,%d)\n", len(out), mx, my)
+				fmt.Fprintf(c.Err, "updated clipboard [%d chars]\n", len(out))
 			}
 		}
 	}
@@ -226,11 +229,11 @@ func fileModSize(path string) (time.Time, int64, error) {
 
 func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, int, int, bool, error) {
 	startX, startY := robotgo.GetMousePos()
-
 	rawText, err := aiDir.PromptText()
 	if err != nil {
 		return "", 0, 0, false, err
 	}
+
 	if !promptSectionHasContent(rawText) {
 		mx, my := robotgo.GetMousePos()
 		return "", mx, my, false, nil
@@ -251,7 +254,6 @@ func (c *CLI) renderPromptToClipboard(aiDir *AiDir) (string, int, int, bool, err
 		reader.SetVar("AIC_RULES_DIR", aiDir.Rules)
 		reader.SetVar("AIC_VARS_DIR", aiDir.Vars)
 	}
-
 	reader.SetVar("AIC_X_START", strconv.Itoa(startX))
 	reader.SetVar("AIC_Y_START", strconv.Itoa(startY))
 
@@ -349,10 +351,8 @@ func executePostActions(actions []PostAction, phase PostActionPhase, delay time.
 				return modified, err
 			}
 			mouseJump(x, y)
-
 		case PostActionClick:
 			mouseClick(a.Button)
-
 		case PostActionType:
 			perKey := defaultTypeDelay
 			if a.DelayMs > 0 {
@@ -361,26 +361,22 @@ func executePostActions(actions []PostAction, phase PostActionPhase, delay time.
 			if err := typeWithModifiers(a.Text, a.Mods, perKey); err != nil {
 				return modified, err
 			}
-
 		case PostActionSleep:
 			if a.Sleep > 0 {
 				time.Sleep(a.Sleep)
 			} else if a.Sleep == 0 {
-				// no-op
+				// 0 sleep is no-op
 			}
-
 		case PostActionPress:
 			pressKey(a.Key)
-
 		case PostActionClear:
-			// no-op (reserved)
+			// "clear" usually happens implicitly at end of renderPromptToClipboard
+			// but if $clearAfter() was called, we might do extra logic here if needed.
 		}
-
 		if delay > 0 {
 			time.Sleep(delay)
 		}
 	}
-
 	return modified, nil
 }
 
@@ -411,6 +407,7 @@ func normalizeModifier(mod string) string {
 		return ""
 	}
 	u := strings.ToUpper(m)
+
 	switch u {
 	case "CTRL":
 		u = "CONTROL"
@@ -419,6 +416,7 @@ func normalizeModifier(mod string) string {
 	case "WIN":
 		u = "WINDOWS"
 	}
+
 	base := func(key string) string {
 		switch key {
 		case "SHIFT":
@@ -441,6 +439,7 @@ func normalizeModifier(mod string) string {
 			return ""
 		}
 	}
+
 	if strings.HasPrefix(u, "LEFT_") {
 		b := base(strings.TrimPrefix(u, "LEFT_"))
 		if b == "" {
@@ -455,6 +454,7 @@ func normalizeModifier(mod string) string {
 		}
 		return "r" + b
 	}
+
 	if b := base(u); b != "" {
 		return b
 	}
@@ -466,16 +466,19 @@ func looksLikeHotkeyKey(s string) bool {
 	if t == "" {
 		return false
 	}
+	// single character
 	if utf8.RuneCountInString(t) == 1 {
 		r, _ := utf8.DecodeRuneInString(t)
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
 			return true
 		}
+		// symbol?
 		if strings.ContainsRune("[]\\;',./`-=", r) {
 			return true
 		}
 		return false
 	}
+	// named keys
 	k := strings.ToLower(t)
 	switch k {
 	case "enter", "return", "tab", "space", "esc", "escape",
@@ -484,6 +487,7 @@ func looksLikeHotkeyKey(s string) bool {
 		"home", "end", "pageup", "pagedown":
 		return true
 	}
+	// F1..F12..F24
 	if len(k) >= 2 && k[0] == 'f' {
 		n := k[1:]
 		if n == "" {
@@ -503,7 +507,6 @@ func typeWithModifiers(text string, mods []string, perKeyDelay time.Duration) er
 	if text == "" {
 		return nil
 	}
-
 	var norm []string
 	for _, m := range mods {
 		n := normalizeModifier(m)
@@ -512,15 +515,19 @@ func typeWithModifiers(text string, mods []string, perKeyDelay time.Duration) er
 		}
 	}
 
+	// Single key with modifiers logic
 	if len(norm) > 0 && looksLikeHotkeyKey(text) {
 		key := strings.ToLower(strings.TrimSpace(text))
+
 		if runtime.GOOS == "darwin" {
+			// robotgo on mac sometimes needs "cmd" not "lcmd" / "rcmd" for simple KeyTap
 			for i := range norm {
 				if norm[i] == "lcmd" || norm[i] == "rcmd" {
 					norm[i] = "cmd"
 				}
 			}
 		}
+
 		tapArgs := make([]interface{}, 0, len(norm))
 		for _, m := range norm {
 			tapArgs = append(tapArgs, m)
@@ -529,6 +536,7 @@ func typeWithModifiers(text string, mods []string, perKeyDelay time.Duration) er
 		return nil
 	}
 
+	// Hold modifiers, type string, release modifiers
 	for _, m := range norm {
 		robotgo.KeyDown(m)
 	}
@@ -543,36 +551,14 @@ func typeWithModifiers(text string, mods []string, perKeyDelay time.Duration) er
 	for i := len(norm) - 1; i >= 0; i-- {
 		robotgo.KeyUp(norm[i])
 	}
-
 	return nil
 }
 
 func applyLabels(in string) string {
 	s := strings.TrimSpace(in)
-	if !strings.HasPrefix(s, "---") {
-		return s
-	}
-	s = s[3:] // skip first ---
-	const separator = "\n---\n"
-	splitIdx := strings.Index(s, separator)
-	if splitIdx == -1 {
-		return "===" + s
-	}
-	contextContent := strings.TrimSpace(s[:splitIdx])
-	promptStart := splitIdx + len(separator)
-	promptContent := ""
-	if promptStart < len(s) {
-		promptContent = strings.TrimSpace(s[promptStart:])
-	}
-	var sb strings.Builder
-	if contextContent != "" {
-		sb.WriteString("=== CONTEXT ===\n")
-		sb.WriteString(contextContent)
-		sb.WriteString("\n\n")
-	}
-	sb.WriteString("=== PROMPT ===\n")
-	sb.WriteString(promptContent)
-	return sb.String()
+	// We no longer strip or reformat --- to ===.
+	// We return the content as-is to preserve the structure on clipboard.
+	return s
 }
 
 func (c *CLI) printHelp(topic string) {
@@ -580,12 +566,15 @@ func (c *CLI) printHelp(topic string) {
 	case "init":
 		fmt.Fprint(c.Out, `Usage:
   aic init [--force]
+
 Creates ./ai and writes ./ai/prompt.md (only).
 Also creates ./ai/rules/, ./ai/vars/, and ./ai/prompts/.
+
 prompt.md starts with:
   ---
   $path(".")
-  === PROMPT ===
+  ---
+
 Options:
   --force    Remove existing ./ai before creating it.
 `)
@@ -593,12 +582,15 @@ Options:
 	case "watch":
 		fmt.Fprint(c.Out, `Usage:
   aic watch [--poll DURATION] [--debounce DURATION]
+
 Watches ./ai/prompt.md for changes. On save (debounced), tokenizes and copies output to clipboard.
 Automatically includes all files in ./ai/rules/ unless $norules() is used.
 After each successful copy, the RAW prompt.md is saved to ./ai/prompts/ (keeps last 100)
 and prompt.md is cleared back to its header/context.
+
 Also runs the global Sequence listener while watching:
   leader is SPACE ' ; then a key (example: ' ;1 prints mouse coords)
+
 Options:
   --poll          Poll interval (default: 200ms)
   --debounce      Stable window to consider file "saved" (default: 350ms)
@@ -607,6 +599,7 @@ Options:
 	case "listen":
 		fmt.Fprint(c.Out, `Usage:
   aic listen
+
 Runs the global Sequence listener.
 Leader is SPACE ' ; then a key (example: ' ;1 prints mouse coords).
 Press Ctrl+C to stop.
@@ -615,33 +608,41 @@ Press Ctrl+C to stop.
 	case "help":
 		fmt.Fprint(c.Out, `Usage:
   aic help [command]
+
 Shows help for a command (or general help).
 `)
 		return
 	case "version":
 		fmt.Fprint(c.Out, `Usage:
   aic version
+
 Prints the CLI version.
 `)
 		return
 	case "":
+		// General help below
 	default:
 		fmt.Fprintf(c.Out, "No detailed help for %q.\n\n", topic)
 	}
+
 	fmt.Fprint(c.Out, `aic - minimal CLI
+
 Usage:
   aic <command> [args]
+
 Commands:
   init            Create ./ai with prompt.md, rules/, vars/, and prompts/
   watch           Watch ./ai/prompt.md and copy expanded output on save
   listen          Listen globally for leader sequences (SPACE ' ; then key)
   help            Show help (optionally for a command)
   version         Print version
+
 Default:
   Running with no command prints the expanded prompt (./ai/prompt.md) and copies output to clipboard.
   Files in ./ai/rules/ are AUTOMATICALLY included at the end of the prompt unless $norules() is present.
   After each successful copy, prompt.md is automatically cleared and the RAW prompt is stashed into ./ai/prompts/
   (keeping the last 100).
+
 Tokens:
   $path("...")                    include files under project root
   $shell("...")                   run a shell command (alias: $sh)
@@ -652,14 +653,17 @@ Tokens:
   $press("ENTER")                 press a single key (ENTER, BACKSPACE, TAB, ESC, arrows, F1..F24, etc.)
   $sleep(250)                     sleep for N milliseconds after copy
   $sleep("750ms")                 sleep for a duration string after copy (e.g. "1.2s")
+
 Sequences (global, when aic watch/listen is running):
   Leader is SPACE ' ; then a command key
   Example: ' ;1 prints current mouse coords
+
 Vars:
   Put KEY=VALUE files in ./ai/vars/ and reference KEY in $jump(...).
   Built-ins:
   AIC_X_START, AIC_Y_START (mouse position at start of render)
   AIC_PROJECT_ROOT, AIC_AI_DIR, AIC_RULES_DIR, AIC_VARS_DIR
+
 Examples:
   aic
   aic watch
@@ -681,6 +685,7 @@ func (c *CLI) cmdInit(args []string) error {
 		return err
 	}
 
+	// Try to print path relative to CWD
 	relRoot := aiDir.Root
 	if wd, werr := os.Getwd(); werr == nil {
 		if rel, rerr := filepath.Rel(wd, aiDir.Root); rerr == nil {
@@ -698,57 +703,41 @@ func (c *CLI) cmdInit(args []string) error {
 
 func promptSectionHasContent(raw string) bool {
 	s := strings.ReplaceAll(raw, "\r\n", "\n")
-	lines := strings.Split(s, "\n")
+	trimmed := strings.TrimSpace(s)
 
-	promptIdx := -1
-	for i := 0; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "=== PROMPT ===" {
-			promptIdx = i
-			break
+	// Check if it looks like a frontmatter file
+	if strings.HasPrefix(trimmed, "---") {
+		// We expect:
+		// ---
+		// context
+		// ---
+		// prompt
+
+		// Skip the first ---
+		// (trimmed[3:] starts after first 3 chars)
+		rest := trimmed[3:]
+
+		// Find the closing "\n---"
+		// This strictly separates context from prompt
+		idx := strings.Index(rest, "\n---")
+		if idx == -1 {
+			// No closing block found.
+			// Treat this as "Context Only" -> No prompt content.
+			return false
 		}
+
+		// The prompt is everything after "\n---" (4 chars)
+		promptStart := idx + 4
+		if promptStart >= len(rest) {
+			// Ends right at the delimiter, so prompt is empty
+			return false
+		}
+
+		promptContent := rest[promptStart:]
+		return strings.TrimSpace(PreProcess(promptContent)) != ""
 	}
 
-	if promptIdx != -1 {
-		after := []string{}
-		if promptIdx+1 < len(lines) {
-			after = lines[promptIdx+1:]
-		}
-
-		sep := -1
-		for i := 0; i < len(after); i++ {
-			if strings.TrimSpace(after[i]) == "---" {
-				sep = i
-				break
-			}
-		}
-
-		var promptPart string
-		if sep != -1 {
-			if sep+1 < len(after) {
-				promptPart = strings.Join(after[sep+1:], "\n")
-			} else {
-				promptPart = ""
-			}
-		} else {
-			promptPart = strings.Join(after, "\n")
-		}
-
-		return strings.TrimSpace(PreProcess(promptPart)) != ""
-	}
-
-	if strings.HasPrefix(strings.TrimSpace(s), "---") {
-		ss := strings.TrimSpace(s)[3:]
-		const sep = "\n---\n"
-		if splitIdx := strings.Index(ss, sep); splitIdx != -1 {
-			promptStart := splitIdx + len(sep)
-			promptPart := ""
-			if promptStart < len(ss) {
-				promptPart = ss[promptStart:]
-			}
-			return strings.TrimSpace(PreProcess(promptPart)) != ""
-		}
-	}
-
+	// No frontmatter context detected; treat the entire file as the prompt
 	return strings.TrimSpace(PreProcess(s)) != ""
 }
 
@@ -759,8 +748,6 @@ func (c *CLI) startSequenceSystem() (func(), error) {
 	}
 
 	listener := NewSequenceListener(mgr)
-
-	// Sequence debug logging removed (sequence system still runs).
 	stop, err := listener.Start(func(key string) error {
 		seq, ok := mgr.Get(key)
 		if !ok {

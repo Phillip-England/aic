@@ -16,6 +16,7 @@ type AiDir struct {
 	Ignore     *GitIgnore
 }
 
+// Updated header to use --- instead of === PROMPT ===
 const promptHeader = `---
 $path(".")
 ---
@@ -92,6 +93,7 @@ func NewAiDir(force bool) (*AiDir, error) {
 	}
 
 	ign, _ := LoadGitIgnore(workingAbs)
+
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
@@ -107,6 +109,7 @@ func OpenAiDir() (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
+
 	workingAbs, err := findAiWorkingDir(wd)
 	if err != nil {
 		return nil, err
@@ -123,14 +126,13 @@ func OpenAiDir() (*AiDir, error) {
 
 	rulesAbs := filepath.Join(rootAbs, "rules")
 	_ = os.MkdirAll(rulesAbs, 0o755)
-
 	varsAbs := filepath.Join(rootAbs, "vars")
 	_ = os.MkdirAll(varsAbs, 0o755)
-
 	promptsAbs := filepath.Join(rootAbs, "prompts")
 	_ = os.MkdirAll(promptsAbs, 0o755)
 
 	ign, _ := LoadGitIgnore(workingAbs)
+
 	return &AiDir{
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
@@ -158,7 +160,6 @@ func (d *AiDir) PromptText() (string, error) {
 	return s, nil
 }
 
-// ClearPrompt clears prompt.md back to just the header/context (preserving YAML header or "=== PROMPT ===" marker).
 func (d *AiDir) ClearPrompt() error {
 	return clearPromptPreserveContext(d)
 }
