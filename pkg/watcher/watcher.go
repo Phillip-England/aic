@@ -8,11 +8,42 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/phillip-england/aic/pkg/dir"
 	"github.com/phillip-england/aic/pkg/interpreter"
 )
 
-func Watch(pollInterval, debounce time.Duration) error {
+func Start(pollInterval, debounce time.Duration) error {
+	go WatchClipboard(pollInterval)
+	return WatchPrompt(pollInterval, debounce)
+}
+
+func WatchClipboard(pollInterval time.Duration) {
+	fmt.Println("Watching Clipboard...")
+	lastClip, _ := clipboard.ReadAll()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		currentClip, err := clipboard.ReadAll()
+		if err != nil {
+			continue
+		}
+		if currentClip != lastClip {
+			lastClip = currentClip
+			
+			// Clean whitespace to ensure accurate matching
+			checkVal := strings.TrimSpace(currentClip)
+			
+			if strings.HasPrefix(checkVal, "AIC: START") && strings.HasSuffix(checkVal, "AIC: END") {
+				fmt.Println("good")
+			} else {
+				fmt.Println("bad")
+			}
+		}
+	}
+}
+
+func WatchPrompt(pollInterval, debounce time.Duration) error {
 	aiDir, err := dir.OpenAiDir()
 	if err != nil {
 		aiDir, _ = dir.NewAiDir(false)
@@ -30,7 +61,6 @@ func Watch(pollInterval, debounce time.Duration) error {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
-	// Initialize lastMod to the current file time to prevent immediate execution
 	var lastMod time.Time
 	if info, err := os.Stat(aiDir.PromptPath()); err == nil {
 		lastMod = info.ModTime()
@@ -57,6 +87,7 @@ func Watch(pollInterval, debounce time.Duration) error {
 
 			if pending && time.Since(pendingSince) > debounce {
 				pending = false
+
 				raw, err := aiDir.ReadPrompt()
 				if err != nil {
 					fmt.Println("Error reading prompt:", err)
@@ -72,8 +103,7 @@ func Watch(pollInterval, debounce time.Duration) error {
 					fmt.Println("Error:", err)
 				} else {
 					fmt.Println("Done.")
-					// Update lastMod again to ensure we don't re-trigger on the file write 
-					// that might have happened during Run (clearing prompt)
+					// Update lastMod again to prevent loop if processing modified the file
 					if i, e := os.Stat(aiDir.PromptPath()); e == nil {
 						lastMod = i.ModTime()
 					}

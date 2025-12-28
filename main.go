@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -25,10 +26,9 @@ func main() {
 			fmt.Println("Initialized ./ai")
 		}
 	case "watch":
-		err := watcher.Watch(200*time.Millisecond, 300*time.Millisecond)
-		if err != nil {
-			fmt.Println("Error:", err)
-		}
+	if err := watcher.Start(500*time.Millisecond, 100*time.Millisecond); err != nil {
+			log.Fatal(err)
+	}
 	default:
 		fmt.Println("Unknown command")
 	}
