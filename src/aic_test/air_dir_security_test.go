@@ -60,7 +60,7 @@ func TestOpenAiDir_FindsAiDirByWalkingUpAndSetsWorkingDirToProjectRoot(t *testin
 	}
 }
 
-func TestDollarToken_At_SymlinkEscape_IsNotValidatedInCurrentImplementation(t *testing.T) {
+func TestDollarToken_Path_SymlinkEscape_IsNotValidatedInCurrentImplementation(t *testing.T) {
 	td := t.TempDir()
 	root := filepath.Join(td, "project")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -88,14 +88,13 @@ func TestDollarToken_At_SymlinkEscape_IsNotValidatedInCurrentImplementation(t *t
 		t.Skipf("symlink not supported: %v", err)
 	}
 
-	tok := aic.NewDollarToken(`$at("leak.txt")`)
-	// Current Validate() does not reject symlink escapes; it only parses args.
+	tok := aic.NewDollarToken(`$path("leak.txt")`)
 	if err := tok.Validate(aiDir); err != nil {
 		t.Fatalf("expected Validate to succeed (no symlink escape checks yet), got: %v", err)
 	}
 }
 
-func TestDollarToken_At_AllowsNormalPathsUnderProjectRoot(t *testing.T) {
+func TestDollarToken_Path_AllowsNormalPathsUnderProjectRoot(t *testing.T) {
 	td := t.TempDir()
 	root := filepath.Join(td, "project")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -117,7 +116,7 @@ func TestDollarToken_At_AllowsNormalPathsUnderProjectRoot(t *testing.T) {
 		t.Fatalf("write ok.txt: %v", err)
 	}
 
-	tok := aic.NewDollarToken(`$at("ok.txt")`)
+	tok := aic.NewDollarToken(`$path("ok.txt")`)
 	if err := tok.Validate(aiDir); err != nil {
 		t.Fatalf("expected Validate ok, got: %v", err)
 	}

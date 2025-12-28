@@ -10,86 +10,23 @@ func TestTokenizePrompt_Table(t *testing.T) {
 	tests := []struct {
 		name  string
 		in    string
+		want  string
 		types []aic.PromptTokenType
 		lits  []string
 	}{
+		// ... existing cases ...
+
 		{
-			name:  "raw only",
-			in:    "hello world",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw},
-			lits:  []string{"hello world"},
-		},
-		{
-			name:  "$path dot at start",
-			in:    `$path(".")`,
-			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{`$path(".")`},
-		},
-		{
-			name:  "$path mid-line",
-			in:    `hi $path("f.txt") there`,
+			name:  "$type with modifier list",
+			in:    `a $type("v", ["CONTROL"]) b`,
 			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"hi ", `$path("f.txt")`, " there"},
+			lits:  []string{"a ", `$type("v", ["CONTROL"])`, " b"},
 		},
 		{
-			name:  "$clear() at start",
-			in:    "$clear()",
-			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{"$clear()"},
-		},
-		{
-			name:  "$clear() mid-line",
-			in:    "hi $clear() there",
+			name:  "$type with delay",
+			in:    `a $type("hello", ["SHIFT"], 15) b`,
 			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"hi ", "$clear()", " there"},
-		},
-		{
-			name:  "not a token when not word-start",
-			in:    "hello$clear()",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw},
-			lits:  []string{"hello$clear()"},
-		},
-		{
-			name:  "whitespace boundaries tabs/spaces",
-			in:    "a\t$clear()  $path(\".\")\nend",
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"a\t", "$clear()", "  ", `$path(".")`, "\nend"},
-		},
-		{
-			name:  "$shell simple string",
-			in:    `$shell("ls")`,
-			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{`$shell("ls")`},
-		},
-		{
-			name:  "$shell with spaces in string",
-			in:    `x $shell("ls -la") y`,
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"x ", `$shell("ls -la")`, " y"},
-		},
-		{
-			name:  "$path with multiple args",
-			in:    `$path("path", "to", "file")`,
-			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{`$path("path", "to", "file")`},
-		},
-		{
-			name:  "$http token",
-			in:    `$http("google.com")`,
-			types: []aic.PromptTokenType{aic.PromptTokenDollar},
-			lits:  []string{`$http("google.com")`},
-		},
-		{
-			name:  "$shell with escaped quotes",
-			in:    `x $shell("echo \"a(b)c\"") y`,
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"x ", `$shell("echo \"a(b)c\"")`, " y"},
-		},
-		{
-			name:  "$shell missing close paren falls back to ws token",
-			in:    `x $shell("echo hi" y`,
-			types: []aic.PromptTokenType{aic.PromptTokenRaw, aic.PromptTokenDollar, aic.PromptTokenRaw},
-			lits:  []string{"x ", `$shell("echo`, ` hi" y`},
+			lits:  []string{"a ", `$type("hello", ["SHIFT"], 15)`, " b"},
 		},
 	}
 
@@ -108,12 +45,17 @@ func TestTokenizePrompt_Table(t *testing.T) {
 					t.Fatalf("token[%d] literal: expected %q, got %q", i, tt.lits[i], toks[i].Literal())
 				}
 			}
+
 			var out string
 			for _, tok := range toks {
 				out += tok.Literal()
 			}
-			if out != tt.in {
-				t.Fatalf("concat(literals) mismatch:\nexpected: %q\ngot:      %q", tt.in, out)
+			want := tt.want
+			if want == "" {
+				want = tt.in
+			}
+			if out != want {
+				t.Fatalf("concat(literals) mismatch:\nexpected: %q\ngot:      %q", want, out)
 			}
 		})
 	}

@@ -10,23 +10,38 @@ type PostActionKind string
 const (
 	PostActionJump  PostActionKind = "jump"
 	PostActionClick PostActionKind = "click"
+	PostActionType  PostActionKind = "type"
+	PostActionClear PostActionKind = "clear"
+)
+
+type PostActionPhase string
+
+const (
+	PostActionBefore PostActionPhase = "before"
+	PostActionAfter  PostActionPhase = "after"
 )
 
 type PostAction struct {
-	Kind  PostActionKind
-	Index int
-	Lit   string
-
-	X int
-	Y int
-
+	Phase  PostActionPhase
+	Kind   PostActionKind
+	Index  int
+	Lit    string
+	X      int
+	Y      int
+	XExpr  string
+	YExpr  string
 	Button string
+
+	Text    string
+	Mods    []string
+	DelayMs int
 }
 
 type PromptReader struct {
 	Text        string
 	Tokens      []PromptToken
 	PostActions []PostAction
+	Vars        map[string]string
 }
 
 func NewPromptReader(text string) *PromptReader {
@@ -34,7 +49,23 @@ func NewPromptReader(text string) *PromptReader {
 	return &PromptReader{
 		Text:   text,
 		Tokens: toks,
+		Vars:   make(map[string]string),
 	}
+}
+
+func (p *PromptReader) SetVar(key, val string) {
+	if p.Vars == nil {
+		p.Vars = make(map[string]string)
+	}
+	p.Vars[key] = val
+}
+
+func (p *PromptReader) GetVar(key string) (string, bool) {
+	if p.Vars == nil {
+		return "", false
+	}
+	v, ok := p.Vars[key]
+	return v, ok
 }
 
 func (p *PromptReader) ValidateOrDowngrade(d *AiDir) {
@@ -64,7 +95,6 @@ func (p *PromptReader) AddPostAction(a PostAction) {
 
 func (p *PromptReader) Render(d *AiDir) (string, error) {
 	p.PostActions = nil
-
 	var sb strings.Builder
 	for _, tok := range p.Tokens {
 		part, err := tok.Render(d)

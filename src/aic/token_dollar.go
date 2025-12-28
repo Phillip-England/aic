@@ -2,7 +2,6 @@ package aic
 
 import (
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -11,27 +10,20 @@ type DollarToken struct {
 	TokenCtx
 	literal string
 
-	isSh      bool
-	shCmd     string
-	shCmdDisp string
+	name    string
+	args    string
+	argList []string
+	handler DollarHandler
 
-	isClear bool
+	// jump/click
+	jumpX, jumpY         int
+	jumpXExpr, jumpYExpr string
+	clickButton          string
 
-	isSkill   bool
-	skillName string
-
-	isAt     bool
-	atTarget string
-
-	isHttp  bool
-	httpUrl string
-
-	isJump bool
-	jumpX  int
-	jumpY  int
-
-	isClick     bool
-	clickButton string
+	// type
+	typeText    string
+	typeMods    []string
+	typeDelayMs int
 }
 
 func NewDollarToken(lit string) PromptToken {
@@ -40,128 +32,10 @@ func NewDollarToken(lit string) PromptToken {
 
 func (t *DollarToken) Type() PromptTokenType { return PromptTokenDollar }
 func (t *DollarToken) Literal() string       { return t.literal }
+func (t *DollarToken) String() string        { return fmt.Sprintf("<Dollar %q>", t.literal) }
 
 func (t *DollarToken) Value() string {
 	return strings.TrimPrefix(t.literal, "$")
-}
-
-func parseIntPairArgs(args string) (int, int, error) {
-	parts := strings.Split(args, ",")
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("expected two integers")
-	}
-	x, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return 0, 0, err
-	}
-	y, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return 0, 0, err
-	}
-	return x, y, nil
-}
-
-func parseOneArg(args string) (string, error) {
-	args = strings.TrimSpace(args)
-	if args == "" {
-		return "", fmt.Errorf("missing argument")
-	}
-	if strings.HasPrefix(args, `"`) {
-		list, err := parseMultiStringArgs(args)
-		if err != nil {
-			return "", err
-		}
-		if len(list) != 1 {
-			return "", fmt.Errorf("expected exactly one argument")
-		}
-		return list[0], nil
-	}
-	if strings.Contains(args, ",") {
-		return "", fmt.Errorf("expected single argument")
-	}
-	return args, nil
-}
-
-func (t *DollarToken) Validate(d *AiDir) error {
-	*t = DollarToken{literal: t.literal}
-
-	name, args, ok := parseDollarCall(t.Value())
-	if !ok {
-		return nil
-	}
-
-	switch name {
-	case "jump":
-		x, y, err := parseIntPairArgs(args)
-		if err != nil {
-			return fmt.Errorf("$jump: %w", err)
-		}
-		t.isJump = true
-		t.jumpX = x
-		t.jumpY = y
-		return nil
-
-	case "click":
-		btn, err := parseOneArg(args)
-		if err != nil {
-			return fmt.Errorf("$click: %w", err)
-		}
-		btn = strings.ToLower(btn)
-		if btn != "left" && btn != "right" {
-			return fmt.Errorf(`$click: expected "left" or "right"`)
-		}
-		t.isClick = true
-		t.clickButton = btn
-		return nil
-	}
-
-	return t.validateExistingTokens(d, name, args)
-}
-
-func (t *DollarToken) validateExistingTokens(d *AiDir, name, args string) error {
-	argList, err := parseMultiStringArgs(args)
-	if err != nil {
-		return err
-	}
-
-	switch name {
-	case "clear":
-		if len(argList) != 0 {
-			return fmt.Errorf("$clear takes no args")
-		}
-		t.isClear = true
-
-	case "shell", "sh":
-		if len(argList) != 1 {
-			return fmt.Errorf("$sh takes 1 arg")
-		}
-		t.isSh = true
-		t.shCmd = argList[0]
-		t.shCmdDisp = fmt.Sprintf("%q", argList[0])
-
-	case "skill":
-		if len(argList) != 1 {
-			return fmt.Errorf("$skill takes 1 arg")
-		}
-		t.isSkill = true
-		t.skillName = argList[0]
-
-	case "path", "at":
-		if len(argList) == 0 {
-			return fmt.Errorf("$at needs paths")
-		}
-		t.isAt = true
-		t.atTarget = filepath.Join(append([]string{d.WorkingDir}, argList...)...)
-
-	case "http":
-		if len(argList) != 1 {
-			return fmt.Errorf("$http takes 1 arg")
-		}
-		t.isHttp = true
-		t.httpUrl = argList[0]
-	}
-
-	return nil
 }
 
 func (t *DollarToken) AfterValidate(r *PromptReader, index int) error {
@@ -169,35 +43,122 @@ func (t *DollarToken) AfterValidate(r *PromptReader, index int) error {
 	return nil
 }
 
+func (t *DollarToken) Validate(d *AiDir) error {
+	lit := t.literal
+	*t = DollarToken{literal: lit}
+
+	name, args, ok := parseDollarCall(t.Value())
+	if !ok {
+		return nil
+	}
+
+	t.name = name
+	t.args = args
+
+	switch name {
+	case "jump":
+		x, y, xExpr, yExpr, err := parseIntOrIdentPair(args)
+		if err != nil {
+			return fmt.Errorf("$jump: %w", err)
+		}
+		t.jumpX, t.jumpY = x, y
+		t.jumpXExpr, t.jumpYExpr = xExpr, yExpr
+		t.handler = JumpHandler{}
+		return nil
+
+	case "click":
+		if strings.TrimSpace(args) == "" {
+			t.clickButton = "left"
+			t.handler = ClickHandler{}
+			return nil
+		}
+		btn, err := parseOneArg(args)
+		if err != nil {
+			return fmt.Errorf("$click: %w", err)
+		}
+		btn = strings.ToLower(strings.TrimSpace(btn))
+		if btn != "left" && btn != "right" {
+			return fmt.Errorf(`$click: expected "left" or "right"`)
+		}
+		t.clickButton = btn
+		t.handler = ClickHandler{}
+		return nil
+
+	case "type":
+		text, mods, delayMs, err := parseTypeArgs(args)
+		if err != nil {
+			return fmt.Errorf("$type: %w", err)
+		}
+		t.typeText = text
+		t.typeMods = mods
+		t.typeDelayMs = delayMs
+		t.handler = TypeHandler{}
+		return nil
+	}
+
+	// Default: parse as quoted string args (existing behavior)
+	list, err := parseMultiStringArgs(args)
+	if err != nil {
+		return err
+	}
+	t.argList = list
+
+	h := LookupDollarHandler(name)
+	if h == nil {
+		return nil
+	}
+
+	if err := h.Validate(list, d); err != nil {
+		return err
+	}
+	t.handler = h
+	return nil
+}
+
 func (t *DollarToken) Render(d *AiDir) (string, error) {
-	if t.isJump {
+	if t.handler == nil {
+		return t.literal, nil
+	}
+
+	switch t.name {
+	case "jump":
 		t.Reader().AddPostAction(PostAction{
+			Phase: PostActionAfter,
 			Kind:  PostActionJump,
 			Index: t.Index(),
 			Lit:   t.literal,
 			X:     t.jumpX,
 			Y:     t.jumpY,
+			XExpr: t.jumpXExpr,
+			YExpr: t.jumpYExpr,
 		})
 		return "", nil
-	}
 
-	if t.isClick {
+	case "click":
 		t.Reader().AddPostAction(PostAction{
+			Phase:  PostActionAfter,
 			Kind:   PostActionClick,
 			Index:  t.Index(),
 			Lit:    t.literal,
 			Button: t.clickButton,
 		})
 		return "", nil
+
+	case "type":
+		t.Reader().AddPostAction(PostAction{
+			Phase:   PostActionAfter,
+			Kind:    PostActionType,
+			Index:   t.Index(),
+			Lit:     t.literal,
+			Text:    t.typeText,
+			Mods:    append([]string(nil), t.typeMods...),
+			DelayMs: t.typeDelayMs,
+		})
+		return "", nil
+
+	default:
+		return t.handler.Render(d, t.Reader(), t.Index(), t.literal, t.argList)
 	}
-
-	/* existing render logic unchanged below */
-	/* keep your existing $clear, $sh, $path, etc code */
-	return t.literal, nil
-}
-
-func (t *DollarToken) String() string {
-	return fmt.Sprintf("<Dollar %q>", t.literal)
 }
 
 func parseDollarCall(val string) (string, string, bool) {
@@ -214,84 +175,54 @@ func parseDollarCall(val string) (string, string, bool) {
 	return name, args, true
 }
 
-// Parses a comma-separated list of *double-quoted* string args.
-// Examples:
-//
-//	`"a"` -> ["a"]
-//	`"a","b"` -> ["a","b"]
-//
-// Supports escapes: \" \\ \n \t \r
-func parseMultiStringArgs(args string) ([]string, error) {
-	var results []string
-	rest := strings.TrimSpace(args)
-	if rest == "" {
-		return []string{}, nil
+func parseIntOrIdentPair(args string) (x int, y int, xExpr string, yExpr string, err error) {
+	parts := strings.Split(args, ",")
+	if len(parts) != 2 {
+		return 0, 0, "", "", fmt.Errorf("expected two values (x,y)")
+	}
+	left := strings.TrimSpace(parts[0])
+	right := strings.TrimSpace(parts[1])
+	if left == "" || right == "" {
+		return 0, 0, "", "", fmt.Errorf("expected two values (x,y)")
 	}
 
-	for len(rest) > 0 {
-		if rest[0] != '"' {
-			return nil, fmt.Errorf("expected '\"' at start of argument, got %q", rest[0])
+	parseSide := func(s string) (int, string, error) {
+		if n, aerr := strconv.Atoi(s); aerr == nil {
+			return n, "", nil
 		}
-
-		var buf strings.Builder
-		escaped := false
-		i := 1
-		foundEnd := false
-
-		for i < len(rest) {
-			ch := rest[i]
-
-			if escaped {
-				switch ch {
-				case '"':
-					buf.WriteByte('"')
-				case '\\':
-					buf.WriteByte('\\')
-				case 'n':
-					buf.WriteByte('\n')
-				case 't':
-					buf.WriteByte('\t')
-				case 'r':
-					buf.WriteByte('\r')
-				default:
-					buf.WriteByte(ch)
-				}
-				escaped = false
-				i++
-				continue
-			}
-
-			if ch == '\\' {
-				escaped = true
-				i++
-				continue
-			}
-
-			if ch == '"' {
-				foundEnd = true
-				i++
-				break
-			}
-
-			buf.WriteByte(ch)
-			i++
+		if isIdent(s) {
+			return 0, s, nil
 		}
-
-		if !foundEnd {
-			return nil, fmt.Errorf("unterminated string")
-		}
-
-		results = append(results, buf.String())
-
-		rest = strings.TrimSpace(rest[i:])
-		if len(rest) == 0 {
-			break
-		}
-		if rest[0] != ',' {
-			return nil, fmt.Errorf("expected comma between arguments")
-		}
-		rest = strings.TrimSpace(rest[1:])
+		return 0, "", fmt.Errorf("invalid value %q (want int or IDENT)", s)
 	}
 
-	return results, nil
+	xv, xe, e1 := parseSide(left)
+	if e1 != nil {
+		return 0, 0, "", "", e1
+	}
+	yv, ye, e2 := parseSide(right)
+	if e2 != nil {
+		return 0, 0, "", "", e2
+	}
+	return xv, yv, xe, ye, nil
+}
+
+func isIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if (ch >= 'a' && ch <= 'z') ||
+			(ch >= 'A' && ch <= 'Z') ||
+			(ch >= '0' && ch <= '9') ||
+			ch == '_' {
+			continue
+		}
+		return false
+	}
+	if _, err := strconv.Atoi(s); err == nil {
+		return false
+	}
+	return true
 }

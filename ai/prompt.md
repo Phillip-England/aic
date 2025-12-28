@@ -1,8 +1,14 @@
-===
-$path("*")
-$shell(`ls`)
-$jump(200, 900)
+---
+$path(".")
+$jump(2309, 968)
 $click()
-===
+$click()
+$type("a", ["CONTROL"])
+$type("x", ["CONTROL"])
+$type("v", ["CONTROL"])
+# $jump(AIC_X_START, AIC_Y_START)
+$click()
+---
 
-okay the $jump command and click commands should be managed using robotgo, also my tests are failing here is output $shell("make test") please modify tests and update them to fit new token structure please
+Okay when actions like click or jump occur, they need a small delay afterwards. lets start with 50ms
+

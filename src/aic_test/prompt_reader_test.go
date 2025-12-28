@@ -13,20 +13,18 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken_ReaderTes
 		WorkingDir: td,
 		Root:       filepath.Join(td, "ai"),
 	}
-	pr := aic.NewPromptReader(`hello $at("missing") world`)
+
+	pr := aic.NewPromptReader(`hello $path("missing") world`)
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 
 	if len(pr.Tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
-
-	// New behavior: missing files do not cause Validate() to error,
-	// so ValidateOrDowngrade does not downgrade $at("missing").
 	if pr.Tokens[1].Type() != aic.PromptTokenDollar {
 		t.Fatalf("token[1] should remain Dollar, got: %v", pr.Tokens[1].Type())
 	}
-	if pr.Tokens[1].Literal() != `$at("missing")` {
+	if pr.Tokens[1].Literal() != `$path("missing")` {
 		t.Fatalf("token[1] literal mismatch, got: %q", pr.Tokens[1].Literal())
 	}
 }

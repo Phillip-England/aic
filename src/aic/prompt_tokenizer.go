@@ -39,12 +39,12 @@ func scanPrompt(prompt string) []PromptToken {
 
 	parseDollarToken := func(i int) (int, bool) {
 		j := i + 1
-		// Scan identifier part
 		for j < len(prompt) && isIdentChar(prompt[j]) {
 			j++
 		}
-		
-		// If just '$' or '$not_ident', we check if it looks like a function call
+
+		// If there's no identifier after '$', treat it as a plain word token
+		// (consume until whitespace).
 		if j == i+1 {
 			k := i
 			for k < len(prompt) && !isWS(prompt[k]) {
@@ -53,7 +53,7 @@ func scanPrompt(prompt string) []PromptToken {
 			return k, false
 		}
 
-		// Must have opening paren
+		// Must have '(' to be a call token.
 		if j >= len(prompt) || prompt[j] != '(' {
 			k := i
 			for k < len(prompt) && !isWS(prompt[k]) {
@@ -62,7 +62,6 @@ func scanPrompt(prompt string) []PromptToken {
 			return k, false
 		}
 
-		// Scan arguments with balanced parens and quotes
 		depth := 0
 		inSingle := false
 		inDouble := false
@@ -136,10 +135,11 @@ func scanPrompt(prompt string) []PromptToken {
 				}
 				continue
 			}
+
 			k++
 		}
 
-		// If unbalanced or EOF reached without closing ')'
+		// Unterminated call: fallback to consuming to whitespace.
 		k = i
 		for k < len(prompt) && !isWS(prompt[k]) {
 			k++
@@ -150,22 +150,28 @@ func scanPrompt(prompt string) []PromptToken {
 	for i := 0; i < len(prompt); i++ {
 		b := prompt[i]
 
-		if !isWordStart(i) {
+		// Escape support: if a "$token(...)" is preceded by "\" at a word boundary,
+		// treat it as raw text and drop the "\".
+		//
+		// Example: "\$path(".")" -> literal "$path(".")" (no expansion)
+		if isWordStart(i) && b == '\\' && i+1 < len(prompt) && prompt[i+1] == '$' {
+			flushRaw(i)      // flush content before the backslash
+			rawStart = i + 1 // skip the backslash; keep '$' in output
 			continue
 		}
 
-		// Only look for $ tokens now
+		if !isWordStart(i) {
+			continue
+		}
 		if b != '$' {
 			continue
 		}
 
 		flushRaw(i)
-
 		start := i
 		end, _ := parseDollarToken(i)
 		lit := prompt[start:end]
 		tokens = append(tokens, NewDollarToken(lit))
-		
 		i = end - 1
 		rawStart = end
 	}

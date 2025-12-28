@@ -14,20 +14,20 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testin
 		WorkingDir: td,
 		Root:       filepath.Join(td, "ai"),
 	}
-	pr := aic.NewPromptReader(`hello $at("missing") world`)
+
+	pr := aic.NewPromptReader(`hello $path("missing") world`)
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 
 	if len(pr.Tokens) != 3 {
 		t.Fatalf("expected 3 tokens, got %d", len(pr.Tokens))
 	}
+
 	if pr.Tokens[0].Type() != aic.PromptTokenRaw || pr.Tokens[0].Literal() != "hello " {
 		t.Fatalf("token[0] unexpected: %v %q", pr.Tokens[0].Type(), pr.Tokens[0].Literal())
 	}
 
-	// New behavior: tokenizer emits Dollar for $ident(...) at word start;
-	// Validate() does not error for missing files, so no downgrade occurs.
-	if pr.Tokens[1].Type() != aic.PromptTokenDollar || pr.Tokens[1].Literal() != `$at("missing")` {
+	if pr.Tokens[1].Type() != aic.PromptTokenDollar || pr.Tokens[1].Literal() != `$path("missing")` {
 		t.Fatalf("token[1] should remain Dollar, got: %v %q", pr.Tokens[1].Type(), pr.Tokens[1].Literal())
 	}
 
@@ -37,7 +37,7 @@ func TestPromptReader_ValidateOrDowngrade_DowngradesInvalidDollarToken(t *testin
 }
 
 func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
-	in := `a $at(".") b $clear() c`
+	in := `a $path(".") b $clear() c`
 	pr := aic.NewPromptReader(in)
 	if got := pr.String(); got != in {
 		t.Fatalf("expected %q, got %q", in, got)
@@ -46,6 +46,7 @@ func TestPromptReader_String_ReconstructsOriginalViaLiterals(t *testing.T) {
 	td := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(td, "ai"), 0o755)
 	d := &aic.AiDir{WorkingDir: td, Root: filepath.Join(td, "ai")}
+
 	pr.ValidateOrDowngrade(d)
 	pr.BindTokens()
 
