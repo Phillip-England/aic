@@ -3,6 +3,16 @@
 A local Context Bridge for Large Language Model prompting. AIC watches
 your files, compiles context, and prepares prompts automatically.
 
+## Install
+```bash
+go install github.com/phillip-england/aic@latest
+```
+
+## Docs
+```bash
+make docs # requires bun 1.2.0 or later for serving static assets
+```
+
 ## Overview
 
 AIC is a background tool designed to streamline the workflow of copying

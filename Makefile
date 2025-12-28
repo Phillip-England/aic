@@ -1,3 +1,6 @@
+docs:
+	bun ./www/**/*.html
+
 dev:
 	air
 
