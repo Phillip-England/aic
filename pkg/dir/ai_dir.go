@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// Updated to only have 2 separators: Start of file -> Pre-Script -> Separator -> Body
 const PromptHeader = `---
 ---
 `
@@ -21,7 +20,6 @@ type AiDir struct {
 	Root       string
 	WorkingDir string
 	Rules      string
-	Vars       string
 	Prompts    string
 	Ignore     *GitIgnore
 }
@@ -31,11 +29,9 @@ func NewAiDir(force bool) (*AiDir, error) {
 	if err != nil {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
-
 	workingAbs := cleanPath(wd)
 	rootAbs := filepath.Join(workingAbs, "ai")
 	rulesAbs := filepath.Join(rootAbs, "rules")
-	varsAbs := filepath.Join(rootAbs, "vars")
 	promptsAbs := filepath.Join(rootAbs, "prompts")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
 
@@ -49,7 +45,7 @@ func NewAiDir(force bool) (*AiDir, error) {
 		os.RemoveAll(rootAbs)
 	}
 
-	dirs := []string{rootAbs, rulesAbs, varsAbs, promptsAbs}
+	dirs := []string{rootAbs, rulesAbs, promptsAbs}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, fmt.Errorf("create dir %s: %w", d, err)
@@ -66,7 +62,6 @@ func NewAiDir(force bool) (*AiDir, error) {
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
 		Rules:      rulesAbs,
-		Vars:       varsAbs,
 		Prompts:    promptsAbs,
 		Ignore:     ign,
 	}, nil
@@ -81,6 +76,7 @@ func OpenAiDir() (*AiDir, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	rootAbs := filepath.Join(workingAbs, "ai")
 	ign, _ := LoadGitIgnore(workingAbs)
 
@@ -88,7 +84,6 @@ func OpenAiDir() (*AiDir, error) {
 		Root:       rootAbs,
 		WorkingDir: workingAbs,
 		Rules:      filepath.Join(rootAbs, "rules"),
-		Vars:       filepath.Join(rootAbs, "vars"),
 		Prompts:    filepath.Join(rootAbs, "prompts"),
 		Ignore:     ign,
 	}, nil
@@ -115,16 +110,11 @@ func (d *AiDir) ClearPrompt() error {
 	if err != nil {
 		return os.WriteFile(path, []byte(PromptHeader), 0o644)
 	}
-
 	parts := strings.Split(content, "---")
-	// We now expect at least 3 parts: [empty, pre-script, body]
 	if len(parts) < 3 {
 		return os.WriteFile(path, []byte(PromptHeader), 0o644)
 	}
-
 	pre := strings.TrimSpace(parts[1])
-	
-	// Reconstruct with Pre-script maintained, but Body cleared
 	newContent := fmt.Sprintf("---\n%s\n---\n\n\n\n\n\n\n\n\n", pre)
 	return os.WriteFile(path, []byte(newContent), 0o644)
 }

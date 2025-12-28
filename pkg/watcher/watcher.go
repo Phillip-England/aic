@@ -22,7 +22,6 @@ func Watch(pollInterval, debounce time.Duration) error {
 	}
 
 	interp := interpreter.New(aiDir)
-
 	fmt.Printf("Watching %s...\n", aiDir.PromptPath())
 
 	stop := make(chan os.Signal, 1)
@@ -31,7 +30,12 @@ func Watch(pollInterval, debounce time.Duration) error {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	// Initialize lastMod to the current file time to prevent immediate execution
 	var lastMod time.Time
+	if info, err := os.Stat(aiDir.PromptPath()); err == nil {
+		lastMod = info.ModTime()
+	}
+
 	var pending bool
 	var pendingSince time.Time
 
@@ -53,7 +57,6 @@ func Watch(pollInterval, debounce time.Duration) error {
 
 			if pending && time.Since(pendingSince) > debounce {
 				pending = false
-				
 				raw, err := aiDir.ReadPrompt()
 				if err != nil {
 					fmt.Println("Error reading prompt:", err)
@@ -69,7 +72,8 @@ func Watch(pollInterval, debounce time.Duration) error {
 					fmt.Println("Error:", err)
 				} else {
 					fmt.Println("Done.")
-					// Update lastMod again to avoid loop if modifying file inside Run (ClearPrompt)
+					// Update lastMod again to ensure we don't re-trigger on the file write 
+					// that might have happened during Run (clearing prompt)
 					if i, e := os.Stat(aiDir.PromptPath()); e == nil {
 						lastMod = i.ModTime()
 					}
@@ -81,7 +85,6 @@ func Watch(pollInterval, debounce time.Duration) error {
 
 func isBodyEmpty(s string) bool {
 	parts := strings.Split(s, "---")
-	// Expecting [empty, pre, body]
 	if len(parts) < 3 {
 		return true
 	}

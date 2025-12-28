@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIC - AI Context Automator</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --accent: #38bdf8;
+            --code-bg: #000000;
+            --border: #334155;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            color: var(--accent);
+        }
+
+        h2 {
+            margin-top: 2.5rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            color: var(--text-muted);
+            margin-top: 1.5rem;
+        }
+
+        p {
+            color: var(--text-muted);
+        }
+
+        code {
+            background-color: var(--code-bg);
+            color: var(--accent);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: "Menlo", "Monaco", "Courier New", monospace;
+            font-size: 0.9em;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+
+        pre code {
+            background-color: transparent;
+            color: var(--text-main);
+            padding: 0;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: var(--accent);
+        }
+
+        .directory-tree {
+            font-family: monospace;
+            white-space: pre;
+            color: var(--text-muted);
+        }
+
+        footer {
+            margin-top: 4rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>AIC</h1>
+        <p>A local Context Bridge for Large Language Model prompting. AIC watches your files, compiles context, and prepares prompts automatically.</p>
+    </header>
+
+    <section id="overview">
+        <h2>Overview</h2>
+        <p>AIC is a background tool designed to streamline the workflow of copying code and context into AI chat interfaces. Instead of manually copying files, running shell commands, and pasting them into a browser, AIC automates the process.</p>
+        <p>It watches a specific file (<code>ai/prompt.md</code>). When you save that file, AIC:</p>
+        <ol>
+            <li>Executes defined shell commands (optional).</li>
+            <li>Reads your current system clipboard.</li>
+            <li>Collects global project rules.</li>
+            <li>Combines everything into a structured prompt.</li>
+            <li><strong>Writes the final result back to your clipboard</strong>, ready to paste.</li>
+        </ol>
+    </section>
+
+    <section id="structure">
+        <h2>Project Structure</h2>
+        <p>When initialized, AIC creates a dedicated directory in your project root:</p>
+        <div class="card">
+            <div class="directory-tree">
+./ai
+├── prompt.md       <-- You write here. The "Watcher" monitors this.
+├── rules/          <-- Text files placed here are auto-appended to every prompt.
+└── prompts/        <-- History. Past prompts are stashed here automatically.
+            </div>
+        </div>
+    </section>
+
+    <section id="usage">
+        <h2>Usage</h2>
+        <p>To use AIC, simply edit the <code>ai/prompt.md</code> file. The file uses a specific format separated by <code>---</code>.</p>
+
+        <h3>The Prompt Format</h3>
+        <pre><code>---
+# Section 1: Pre-processing Commands (Shell)
+# Commands here run BEFORE the prompt is built.
+ls -la ./pkg
+tree ./src
+---
+# Section 2: The Prompt Body
+# This is what you actually want to ask the AI.
+
+Refactor the file listed in the clipboard based on the tree structure above.
+</code></pre>
+
+        <h3>How it processes</h3>
+        <p>When you hit <strong>Save</strong> on <code>prompt.md</code>:</p>
+        <ol>
+            <li><strong>Clipboard Capture:</strong> AIC grabs whatever is currently in your clipboard (useful if you just copied a stack trace or a specific function).</li>
+            <li><strong>Rule Injection:</strong> It reads all files in <code>ai/rules/</code>.</li>
+            <li><strong>Output:</strong> The final text placed in your clipboard looks like this:</li>
+        </ol>
+        <pre><code>[Content originally in your clipboard]
+
+=== RULES ===
+FILE: ai/rules/coding-standards.txt
+[Content of rule file]
+
+=== PROMPT ===
+Refactor the file listed in the clipboard...</code></pre>
+    </section>
+
+    <section id="features">
+        <h2>Key Features</h2>
+        <div class="feature-grid">
+            <div class="card">
+                <h3>Auto-Stashing</h3>
+                <p>You never lose a prompt. Every time a prompt is processed, the raw content is saved to <code>ai/prompts/YYYYMMDD_HHMMSS.md</code>.</p>
+            </div>
+            <div class="card">
+                <h3>History Pruning</h3>
+                <p>AIC maintains a clean history, automatically keeping only the last 100 prompts to save disk space.</p>
+            </div>
+            <div class="card">
+                <h3>GitIgnore Aware</h3>
+                <p>When collecting files or traversing directories, AIC respects your project's <code>.gitignore</code> file to avoid leaking sensitive or build artifacts.</p>
+            </div>
+            <div class="card">
+                <h3>Debounced Watcher</h3>
+                <p>The file watcher includes intelligent debouncing to prevent double-triggers or processing partial writes.</p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>Documentation generated for AIC</p>
+    </footer>
+</div>
+
+</body>
+</html>
