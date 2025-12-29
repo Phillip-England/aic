@@ -1,6 +1,6 @@
 ---
 pull --prepend pkg;
-pull --prepend ai
+pull --prepend ai;
 # inp mov 1218 129;
 # inp click;
 # inp wait 1000;
