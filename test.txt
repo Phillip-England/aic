@@ -1,0 +1,4 @@
+
+This is the new content for line 2.
+And this is line 3.
+Replacing stuff is cool.
