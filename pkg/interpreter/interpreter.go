@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	"github.com/phillip-england/aic/pkg/dir"
 )
 
@@ -23,7 +24,15 @@ func (i *Interpreter) Run(rawContent string) error {
 		return fmt.Errorf("invalid prompt.md format: missing '---' sections")
 	}
 	preCommands := parts[1]
-	// promptBody := strings.TrimSpace(parts[2]) // Currently unused without clipboard, but available for future transport
+	promptBody := strings.TrimSpace(parts[2])
+
+	if promptBody != "" {
+		if err := clipboard.WriteAll(promptBody); err != nil {
+			fmt.Printf("[Interpreter] Warning: Failed to copy prompt to clipboard: %v\n", err)
+		} else {
+			fmt.Println("[Interpreter] Copied prompt to clipboard.")
+		}
+	}
 
 	if err := i.Dir.StashPrompt(rawContent); err != nil {
 		fmt.Printf("[Interpreter] Warning: Failed to stash prompt: %v\n", err)
