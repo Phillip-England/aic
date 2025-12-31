@@ -7,7 +7,7 @@ import (
 )
 
 func (d *AiDir) ReadAnyFile(relPath string) (string, error) {
-	// Try relative to prompt/ai dir first, then relative to working dir
+	// Try relative to prompt/aic dir first, then relative to working dir
 	path := filepath.Join(d.WorkingDir, relPath)
 	b, err := os.ReadFile(path)
 	if err != nil {

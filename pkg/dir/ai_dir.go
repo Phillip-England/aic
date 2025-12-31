@@ -34,13 +34,13 @@ func NewAiDir(force bool) (*AiDir, error) {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 	workingAbs := cleanPath(wd)
-	rootAbs := filepath.Join(workingAbs, "ai")
+	rootAbs := filepath.Join(workingAbs, "aic")
 	rulesAbs := filepath.Join(rootAbs, "rules")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
 
 	if info, err := os.Lstat(rootAbs); err == nil {
 		if !info.IsDir() {
-			return nil, fmt.Errorf("ai path exists but is not a directory: %s", rootAbs)
+			return nil, fmt.Errorf("aic path exists but is not a directory: %s", rootAbs)
 		}
 		if !force {
 			// If not forcing, we leave the existing dir, but if it's from an old version,
@@ -81,7 +81,7 @@ func OpenAiDir() (*AiDir, error) {
 		return nil, err
 	}
 
-	rootAbs := filepath.Join(workingAbs, "ai")
+	rootAbs := filepath.Join(workingAbs, "aic")
 	ign, _ := LoadGitIgnore(workingAbs)
 
 	return &AiDir{
@@ -316,7 +316,7 @@ func cleanPath(p string) string {
 func findAiWorkingDir(start string) (string, error) {
 	dir := cleanPath(start)
 	for {
-		if info, err := os.Lstat(filepath.Join(dir, "ai")); err == nil && info.IsDir() {
+		if info, err := os.Lstat(filepath.Join(dir, "aic")); err == nil && info.IsDir() {
 			return dir, nil
 		}
 		parent := filepath.Dir(dir)
@@ -325,7 +325,7 @@ func findAiWorkingDir(start string) (string, error) {
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("ai dir not found searching up from %s", start)
+	return "", fmt.Errorf("aic dir not found searching up from %s", start)
 }
 
 type GitIgnore struct {

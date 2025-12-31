@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"log"
 	"os" // Ensure os is imported
+	"os/exec"
 	"strconv"
 	"time"
 
 	"github.com/phillip-england/aic/pkg/dir"
-	"github.com/phillip-england/aic/pkg/interpreter"
 	"github.com/phillip-england/aic/pkg/watcher"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		runOnce()
+		openPromptInVi()
 		return
 	}
 
@@ -25,7 +25,7 @@ func main() {
 		if err != nil {
 			fmt.Println("Error:", err)
 		} else {
-			fmt.Println("Initialized ./ai")
+			fmt.Println("Initialized ./aic")
 		}
 	case "watch":
 		if err := watcher.Start(500*time.Millisecond, 100*time.Millisecond); err != nil {
@@ -38,15 +38,19 @@ func main() {
 	}
 }
 
-func runOnce() {
+func openPromptInVi() {
 	d, err := dir.OpenAiDir()
 	if err != nil {
-		fmt.Println("No ai dir found. Run 'aic init'")
+		fmt.Println("No aic dir found. Run 'aic init'")
 		return
 	}
-	i := interpreter.New(d)
-	raw, _ := d.ReadPrompt()
-	i.Run(raw)
+	cmd := exec.Command("vi", d.PromptPath())
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Error opening vi: %v\n", err)
+	}
 }
 
 func handleHistoryCmd() {
@@ -55,7 +59,7 @@ func handleHistoryCmd() {
 
 	if err != nil {
 
-		fmt.Println("No ai dir found. Run 'aic init'")
+		fmt.Println("No aic dir found. Run 'aic init'")
 
 		return
 
