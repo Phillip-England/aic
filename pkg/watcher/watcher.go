@@ -30,7 +30,7 @@ func WatchPrompt(pollInterval, debounce time.Duration, aiDir *dir.AiDir) error {
 		}
 	}
 	if aiDir == nil {
-		return fmt.Errorf("could not open or create aic directory")
+		return fmt.Errorf("could not open or create .aic directory")
 	}
 
 	interp := interpreter.New(aiDir)

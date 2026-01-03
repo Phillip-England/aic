@@ -20,7 +20,7 @@ code and context into AI chat interfaces. Instead of manually copying
 files, running shell commands, and pasting them into a browser, AIC
 automates the process.
 
-It watches a specific file (`aic/prompt.md`). When you save that file,
+It watches a specific file (`.aic/prompt.md`). When you save that file,
 AIC:
 
 1.  Executes defined shell commands (optional).
@@ -31,14 +31,14 @@ AIC:
 
 ## Project Structure
 
-    ./aic
+    ./.aic
     ├── prompt.md
     ├── rules/
     └── prompts/
 
 ## Usage
 
-Edit `aic/prompt.md` using the format below:
+Edit `.aic/prompt.md` using the format below:
 
     ---
     ls -la ./pkg

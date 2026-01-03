@@ -14,8 +14,10 @@ import (
 	"strings"
 )
 
+const AiDirName = ".aic"
 const PromptHeader = `---
 ---
+
 `
 
 const MaxPromptHistory = 500
@@ -34,13 +36,13 @@ func NewAiDir(force bool) (*AiDir, error) {
 		return nil, fmt.Errorf("get working directory: %w", err)
 	}
 	workingAbs := cleanPath(wd)
-	rootAbs := filepath.Join(workingAbs, "aic")
+	rootAbs := filepath.Join(workingAbs, AiDirName)
 	rulesAbs := filepath.Join(rootAbs, "rules")
 	promptFile := filepath.Join(rootAbs, "prompt.md")
 
 	if info, err := os.Lstat(rootAbs); err == nil {
 		if !info.IsDir() {
-			return nil, fmt.Errorf("aic path exists but is not a directory: %s", rootAbs)
+			return nil, fmt.Errorf("%s path exists but is not a directory: %s", AiDirName, rootAbs)
 		}
 		if !force {
 			// If not forcing, we leave the existing dir, but if it's from an old version,
@@ -59,6 +61,10 @@ func NewAiDir(force bool) (*AiDir, error) {
 
 	if err := os.WriteFile(promptFile, []byte(PromptHeader), 0o644); err != nil {
 		return nil, fmt.Errorf("write prompt.md: %w", err)
+	}
+
+	if err := ensureGitIgnoreHasEntry(workingAbs, AiDirName); err != nil {
+		return nil, fmt.Errorf("update .gitignore: %w", err)
 	}
 
 	ign, _ := LoadGitIgnore(workingAbs)
@@ -81,7 +87,7 @@ func OpenAiDir() (*AiDir, error) {
 		return nil, err
 	}
 
-	rootAbs := filepath.Join(workingAbs, "aic")
+	rootAbs := filepath.Join(workingAbs, AiDirName)
 	ign, _ := LoadGitIgnore(workingAbs)
 
 	return &AiDir{
@@ -118,7 +124,7 @@ func (d *AiDir) ClearPrompt() error {
 		return os.WriteFile(path, []byte(PromptHeader), 0o644)
 	}
 	pre := strings.TrimSpace(parts[1])
-	newContent := fmt.Sprintf("---\n%s\n---\n\n\n\n\n\n\n\n\n", pre)
+	newContent := fmt.Sprintf("---\n%s\n---\n\n", pre)
 	return os.WriteFile(path, []byte(newContent), 0o644)
 }
 
@@ -316,16 +322,16 @@ func cleanPath(p string) string {
 func findAiWorkingDir(start string) (string, error) {
 	dir := cleanPath(start)
 	for {
-		if info, err := os.Lstat(filepath.Join(dir, "aic")); err == nil && info.IsDir() {
-			return dir, nil
-		}
+	if info, err := os.Lstat(filepath.Join(dir, AiDirName)); err == nil && info.IsDir() {
+		return dir, nil
+	}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("aic dir not found searching up from %s", start)
+	return "", fmt.Errorf("%s dir not found searching up from %s", AiDirName, start)
 }
 
 type GitIgnore struct {
@@ -348,6 +354,32 @@ func LoadGitIgnore(wd string) (*GitIgnore, error) {
 		}
 	}
 	return &GitIgnore{patterns: pats}, nil
+}
+
+func ensureGitIgnoreHasEntry(wd, entry string) error {
+	path := filepath.Join(wd, ".gitignore")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.WriteFile(path, []byte(entry+"\n"), 0o644)
+		}
+		return err
+	}
+
+	normalized := strings.ReplaceAll(string(b), "\r\n", "\n")
+	lines := strings.Split(normalized, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == entry || trimmed == entry+"/" {
+			return nil
+		}
+	}
+
+	if !strings.HasSuffix(normalized, "\n") {
+		normalized += "\n"
+	}
+	normalized += entry + "\n"
+	return os.WriteFile(path, []byte(normalized), 0o644)
 }
 
 func (g *GitIgnore) Match(relPath string) bool {

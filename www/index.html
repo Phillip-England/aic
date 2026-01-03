@@ -126,7 +126,7 @@
     <section id="overview">
         <h2>Overview</h2>
         <p>AIC is a background tool designed to streamline the workflow of copying code and context into AI chat interfaces. Instead of manually copying files, running shell commands, and pasting them into a browser, AIC automates the process.</p>
-        <p>It watches a specific file (<code>aic/prompt.md</code>). When you save that file, AIC:</p>
+        <p>It watches a specific file (<code>.aic/prompt.md</code>). When you save that file, AIC:</p>
         <ol>
             <li>Executes defined shell commands (optional).</li>
             <li>Reads your current system clipboard.</li>
@@ -141,7 +141,7 @@
         <p>When initialized, AIC creates a dedicated directory in your project root:</p>
         <div class="card">
             <div class="directory-tree">
-./aic
+./.aic
 ├── prompt.md       <-- You write here. The "Watcher" monitors this.
 ├── rules/          <-- Text files placed here are auto-appended to every prompt.
 └── prompts/        <-- History. Past prompts are stashed here automatically.
@@ -151,7 +151,7 @@
 
     <section id="usage">
         <h2>Usage</h2>
-        <p>To use AIC, simply edit the <code>aic/prompt.md</code> file. The file uses a specific format separated by <code>---</code>.</p>
+        <p>To use AIC, simply edit the <code>.aic/prompt.md</code> file. The file uses a specific format separated by <code>---</code>.</p>
 
         <h3>The Prompt Format</h3>
         <pre><code>---
@@ -170,13 +170,13 @@ Refactor the file listed in the clipboard based on the tree structure above.
         <p>When you hit <strong>Save</strong> on <code>prompt.md</code>:</p>
         <ol>
             <li><strong>Clipboard Capture:</strong> AIC grabs whatever is currently in your clipboard (useful if you just copied a stack trace or a specific function).</li>
-            <li><strong>Rule Injection:</strong> It reads all files in <code>aic/rules/</code>.</li>
+            <li><strong>Rule Injection:</strong> It reads all files in <code>.aic/rules/</code>.</li>
             <li><strong>Output:</strong> The final text placed in your clipboard looks like this:</li>
         </ol>
         <pre><code>[Content originally in your clipboard]
 
 === RULES ===
-FILE: aic/rules/coding-standards.txt
+FILE: .aic/rules/coding-standards.txt
 [Content of rule file]
 
 === PROMPT ===
@@ -188,7 +188,7 @@ Refactor the file listed in the clipboard...</code></pre>
         <div class="feature-grid">
             <div class="card">
                 <h3>Auto-Stashing</h3>
-                <p>You never lose a prompt. Every time a prompt is processed, the raw content is saved to <code>aic/prompts/YYYYMMDD_HHMMSS.md</code>.</p>
+                <p>You never lose a prompt. Every time a prompt is processed, the raw content is saved to <code>.aic/prompts/YYYYMMDD_HHMMSS.md</code>.</p>
             </div>
             <div class="card">
                 <h3>History Pruning</h3>

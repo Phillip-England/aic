@@ -25,7 +25,7 @@ func main() {
 		if err != nil {
 			fmt.Println("Error:", err)
 		} else {
-			fmt.Println("Initialized ./aic")
+			fmt.Println("Initialized ./.aic")
 		}
 	case "watch":
 		if err := watcher.Start(500*time.Millisecond, 100*time.Millisecond); err != nil {
@@ -41,7 +41,7 @@ func main() {
 func openPromptInVi() {
 	d, err := dir.OpenAiDir()
 	if err != nil {
-		fmt.Println("No aic dir found. Run 'aic init'")
+		fmt.Println("No .aic dir found. Run 'aic init'")
 		return
 	}
 	cmd := exec.Command("vi", d.PromptPath())
@@ -59,7 +59,7 @@ func handleHistoryCmd() {
 
 	if err != nil {
 
-		fmt.Println("No aic dir found. Run 'aic init'")
+		fmt.Println("No .aic dir found. Run 'aic init'")
 
 		return
 
