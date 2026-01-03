@@ -84,6 +84,9 @@ func WatchPrompt(pollInterval, debounce time.Duration, aiDir *dir.AiDir) error {
 					fmt.Println("Error:", err)
 				} else {
 					fmt.Println("Done.")
+					if err := aiDir.StashPrompt(raw); err != nil {
+						fmt.Println("Error stashing prompt:", err)
+					}
 					// Update lastMod to avoid re-triggering immediately if file mod time drifted
 					if i, e := os.Stat(aiDir.PromptPath()); e == nil {
 						lastMod = i.ModTime()

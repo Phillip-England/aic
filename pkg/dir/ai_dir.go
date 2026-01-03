@@ -2,15 +2,9 @@ package dir
 
 import (
 	"bufio"
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 )
 
@@ -19,9 +13,6 @@ const PromptHeader = `---
 ---
 
 `
-
-const MaxPromptHistory = 500
-const HistoryFileName = "history.gz"
 
 type AiDir struct {
 	Root       string
@@ -128,188 +119,9 @@ func (d *AiDir) ClearPrompt() error {
 	return os.WriteFile(path, []byte(newContent), 0o644)
 }
 
-func (d *AiDir) GetHistoryFilePath() string {
-	return filepath.Join(d.Root, HistoryFileName)
-}
-
-func (d *AiDir) historyPath() string {
-	return d.GetHistoryFilePath()
-}
-
-func (d *AiDir) ReadHistory() (map[string]string, error) {
-	history := make(map[string]string)
-	path := d.historyPath()
-
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return history, nil // Return empty map if file doesn't exist
-		}
-		return nil, err
-	}
-	defer f.Close()
-
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer zr.Close()
-
-	jsonDecoder := json.NewDecoder(zr)
-	if err := jsonDecoder.Decode(&history); err != nil {
-		// If file is empty or corrupt, start fresh
-		if err == io.EOF {
-			return make(map[string]string), nil
-		}
-		return nil, fmt.Errorf("failed to decode history JSON: %w", err)
-	}
-
-	return history, nil
-}
-
-func (d *AiDir) WriteHistory(history map[string]string) error {
-	path := d.historyPath()
-
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	jsonEncoder := json.NewEncoder(zw)
-	if err := jsonEncoder.Encode(history); err != nil {
-		return fmt.Errorf("failed to encode history JSON: %w", err)
-	}
-	if err := zw.Close(); err != nil {
-		return fmt.Errorf("failed to close gzip writer: %w", err)
-	}
-
-	return os.WriteFile(path, buf.Bytes(), 0o644)
-}
-
 func (d *AiDir) StashPrompt(raw string) error {
-	history, err := d.ReadHistory()
-	if err != nil {
-		return fmt.Errorf("failed to read prompt history: %w", err)
-	}
-
-	// Remove empty lines from raw content
-	var cleanedLines []string
-	for _, line := range strings.Split(raw, "\n") {
-		if strings.TrimSpace(line) != "" {
-			cleanedLines = append(cleanedLines, line)
-		}
-	}
-	cleanedRaw := strings.Join(cleanedLines, "\n")
-
-	// Find the next key
-	nextKey := 0
-	for keyStr := range history {
-		key, err := strconv.Atoi(keyStr)
-		if err == nil && key >= nextKey {
-			nextKey = key + 1
-		}
-	}
-
-	// Add new prompt
-	history[strconv.Itoa(nextKey)] = cleanedRaw
-
-	// Prune history if it exceeds the max size
-	if len(history) > MaxPromptHistory {
-		var keys []int
-		for keyStr := range history {
-			key, err := strconv.Atoi(keyStr)
-			if err == nil {
-				keys = append(keys, key)
-			}
-		}
-		sort.Ints(keys)
-		toDeleteCount := len(keys) - MaxPromptHistory
-		for i := 0; i < toDeleteCount; i++ {
-			delete(history, strconv.Itoa(keys[i]))
-		}
-	}
-
-	return d.WriteHistory(history)
+	return d.AppendToHistory(raw)
 }
-
-func (d *AiDir) GetAllHistory() (map[string]string, error) {
-	return d.ReadHistory()
-}
-
-func (d *AiDir) GetHistoryEntry(key int) (string, error) {
-	history, err := d.ReadHistory()
-	if err != nil {
-		return "", err
-	}
-	prompt, ok := history[strconv.Itoa(key)]
-	if !ok {
-		return "", fmt.Errorf("no history entry found for key: %d", key)
-	}
-	return prompt, nil
-}
-
-func (d *AiDir) GetHistoryRange(start, end int) (map[string]string, error) {
-	history, err := d.ReadHistory()
-	if err != nil {
-		return nil, err
-	}
-	results := make(map[string]string)
-	for i := start; i <= end; i++ {
-		key := strconv.Itoa(i)
-		if prompt, ok := history[key]; ok {
-			results[key] = prompt
-		}
-	}
-	return results, nil
-}
-
-func (d *AiDir) DeleteHistoryEntry(key int) error {
-	history, err := d.ReadHistory()
-	if err != nil {
-		return err
-	}
-	delete(history, strconv.Itoa(key))
-	return d.WriteHistory(history)
-}
-
-func (d *AiDir) DeleteHistoryRange(start, end int) error {
-	history, err := d.ReadHistory()
-	if err != nil {
-		return err
-	}
-	for i := start; i <= end; i++ {
-		delete(history, strconv.Itoa(i))
-	}
-	return d.WriteHistory(history)
-}
-
-func (d *AiDir) LoadHistory(newHistoryData []byte) error {
-	var newHistory map[string]string
-	if err := json.Unmarshal(newHistoryData, &newHistory); err != nil {
-		return fmt.Errorf("invalid JSON format: %w", err)
-	}
-
-	// Validate that keys are sequential and start from 0
-	var keys []int
-	for k := range newHistory {
-		i, err := strconv.Atoi(k)
-		if err != nil {
-			return fmt.Errorf("invalid key in new history (must be integer): %s", k)
-		}
-		keys = append(keys, i)
-	}
-	sort.Ints(keys)
-
-	if len(keys) > 0 && keys[0] != 0 {
-		return fmt.Errorf("new history must start with key 0")
-	}
-
-	for i := 0; i < len(keys); i++ {
-		if keys[i] != i {
-			return fmt.Errorf("new history keys are not sequential (missing key %d)", i)
-		}
-	}
-
-	return d.WriteHistory(newHistory)
-}
-
 
 func cleanPath(p string) string {
 	p = filepath.Clean(p)
@@ -318,6 +130,7 @@ func cleanPath(p string) string {
 	}
 	return p
 }
+
 
 func findAiWorkingDir(start string) (string, error) {
 	dir := cleanPath(start)
